@@ -1,0 +1,258 @@
+# OXI e16 Ableton Live 12 Mixer Script Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Build and install an Ableton Live 12 Remote Script for the OXI e16 that maps encoders 1–16 to Track Volume and encoder-push buttons 1–16 to Track Mute, for the first 16 tracks, with LED feedback — a hand-written port of the equivalent Midi Fighter Twister script.
+
+**Architecture:** A single small Python package (`e16_ableton/`) using Ableton's `_Framework` (`ControlSurface`, `MixerComponent`, `EncoderElement`, `ButtonElement`), installed via symlink into Ableton's User Library Remote Scripts folder. Before writing any Ableton-specific code, a standalone `mido`-based probe script verifies the e16's actual raw MIDI output matches the documented protocol (channel, CC numbers, note numbers) — this is the biggest risk in the whole project, so it's tested first and in isolation.
+
+**Tech Stack:** Python 3 (Ableton Live 12's embedded interpreter for the script itself; system Python 3 + `mido`/`python-rtmidi` for the standalone probe).
+
+**Design doc:** `docs/superpowers/specs/2026-07-09-e16-ableton-mixer-script-design.md`
+
+---
+
+### Task 1: Raw MIDI hardware probe
+
+**Files:**
+- Create: `scripts/midi_probe.py`
+
+- [ ] **Step 1: Write the probe script**
+
+```python
+#!/usr/bin/env python3
+"""Print raw MIDI messages from a connected device, for protocol verification.
+
+Usage: python3 midi_probe.py
+Then pick the OXI e16 port from the printed list and turn/press its controls.
+"""
+import sys
+import mido
+
+
+def choose_port():
+    ports = mido.get_input_names()
+    if not ports:
+        print("No MIDI input ports found. Is the e16 connected via USB?")
+        sys.exit(1)
+    for i, name in enumerate(ports):
+        print(f"[{i}] {name}")
+    choice = input("Select port number: ")
+    return ports[int(choice)]
+
+
+def main():
+    port_name = choose_port()
+    print(f"Listening on: {port_name}\nPress Ctrl+C to stop.\n")
+    with mido.open_input(port_name) as port:
+        for msg in port:
+            print(msg)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+- [ ] **Step 2: Install dependencies**
+
+Run: `pip3 install mido python-rtmidi`
+Expected: both packages install without error.
+
+- [ ] **Step 3: Run the probe and capture live hardware behavior**
+
+Run: `python3 scripts/midi_probe.py`
+
+With the e16 connected via USB, select its port from the list, then:
+1. Turn encoder 1 clockwise a few clicks.
+2. Turn encoder 1 counter-clockwise a few clicks.
+3. Press and release the encoder 1 push button.
+4. Press and release the physical Shift button.
+
+Expected, per the documented protocol:
+- Clockwise turn: `control_change channel=0 control=1 value=<1-8>`
+- Counter-clockwise turn: `control_change channel=0 control=1 value=<0x78-0x7F, i.e. 120-127>`
+- Push button: `note_on channel=0 note=0 velocity=<nonzero>` then `note_off channel=0 note=0 velocity=0`
+- Shift button: `note_on channel=0 note=16 ...` then `note_off channel=0 note=16 ...`
+
+If actual output differs (different channel, different CC/note numbers, or encoders send absolute 0-127 instead of relative deltas), stop here and update the design/plan before proceeding — Task 3's code assumes the documented behavior.
+
+- [ ] **Step 4: Commit**
+
+```bash
+cd "/Users/williamwolf/Documents/OXI e16"
+git add scripts/midi_probe.py
+git commit -m "Add raw MIDI probe script for e16 protocol verification"
+```
+
+---
+
+### Task 2: Package skeleton and entry point
+
+**Files:**
+- Create: `e16_ableton/__init__.py`
+
+- [ ] **Step 1: Write the entry point**
+
+```python
+from .E16 import E16
+
+
+def create_instance(c_instance):
+    return E16(c_instance)
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+cd "/Users/williamwolf/Documents/OXI e16"
+git add e16_ableton/__init__.py
+git commit -m "Add e16_ableton package entry point"
+```
+
+(This will fail to import until Task 3 creates `E16.py` — that's expected and fine at this stage; Ableton isn't loading it yet.)
+
+---
+
+### Task 3: Mixer control surface implementation
+
+**Files:**
+- Create: `e16_ableton/E16.py`
+
+- [ ] **Step 1: Write the control surface**
+
+```python
+import Live
+from _Framework.ControlSurface import ControlSurface
+from _Framework.MixerComponent import MixerComponent
+from _Framework.EncoderElement import EncoderElement
+from _Framework.ButtonElement import ButtonElement
+from _Framework.InputControlElement import MIDI_CC_TYPE, MIDI_NOTE_TYPE
+
+NUM_TRACKS = 16
+MIDI_CHANNEL = 0  # e16 channel 1, 0-indexed
+
+
+class E16(ControlSurface):
+    def __init__(self, c_instance):
+        super(E16, self).__init__(c_instance)
+        with self.component_guard():
+            self._mixer = MixerComponent(
+                NUM_TRACKS, 0, with_eqs=False, with_filters=False
+            )
+            self._encoders = []
+            self._mute_buttons = []
+            for track_index in range(NUM_TRACKS):
+                strip = self._mixer.channel_strip(track_index)
+
+                cc_number = track_index + 1  # CC 1-16
+                encoder = EncoderElement(
+                    MIDI_CC_TYPE,
+                    MIDI_CHANNEL,
+                    cc_number,
+                    Live.MidiMap.MapMode.absolute,
+                    name=f"Volume_Encoder_{track_index + 1}",
+                )
+                strip.set_volume_control(encoder)
+                self._encoders.append(encoder)
+
+                note_number = track_index  # notes 0-15
+                mute_button = ButtonElement(
+                    True,
+                    MIDI_NOTE_TYPE,
+                    MIDI_CHANNEL,
+                    note_number,
+                    name=f"Mute_Button_{track_index + 1}",
+                )
+                # NOTE: it's unconfirmed whether the e16 firmware does anything
+                # visible with this feedback in plain (non-SysEx) mode — see
+                # Task 5, verification step 4.
+                mute_button.set_on_off_values(127, 0)
+                strip.set_mute_button(mute_button)
+                self._mute_buttons.append(mute_button)
+
+    def disconnect(self):
+        self._encoders = []
+        self._mute_buttons = []
+        super(E16, self).disconnect()
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+cd "/Users/williamwolf/Documents/OXI e16"
+git add e16_ableton/E16.py
+git commit -m "Implement e16 mixer control surface (volume + mute, 16 tracks)"
+```
+
+---
+
+### Task 4: Install into Ableton and verify it loads
+
+**Files:** none (filesystem/install step only)
+
+- [ ] **Step 1: Symlink the package into Ableton's Remote Scripts folder**
+
+```bash
+mkdir -p ~/Music/Ableton/User\ Library/Remote\ Scripts
+ln -sfn "/Users/williamwolf/Documents/OXI e16/e16_ableton" ~/Music/Ableton/User\ Library/Remote\ Scripts/e16_ableton
+ls -la ~/Music/Ableton/User\ Library/Remote\ Scripts/
+```
+
+Expected: `e16_ableton` appears in the listing as a symlink pointing back into the OXI e16 project folder. This means edits to the file in the git repo take effect immediately (after a script reload in Live), no copying needed.
+
+- [ ] **Step 2: Assign the controller in Live 12**
+
+1. Fully quit and reopen Ableton Live 12 (Remote Scripts are only scanned on launch).
+2. Open **Settings → Link, Tempo & MIDI**.
+3. In a Control Surface slot, select **e16_ableton** from the dropdown.
+4. Set **Input** and **Output** to the e16's actual MIDI port names (from Task 1's probe output).
+
+Expected: no error dialog on selecting it, and the Input/Output ports become selectable (not greyed out).
+
+- [ ] **Step 3: Check Live's log for load errors**
+
+```bash
+find ~/Library/Preferences/Ableton -iname "Log.txt" -newer /Users/williamwolf/Documents/OXI\ e16/e16_ableton/E16.py
+```
+
+Open the most recent match and check the tail for any Python traceback mentioning `E16` or `e16_ableton`.
+
+Expected: no traceback. If there is one, paste it back for a fix before moving to Task 5 — don't attempt hardware verification against a script that failed to load.
+
+---
+
+### Task 5: Manual functional verification
+
+**Files:** none — this is a checklist run against the real setup from Task 4.
+
+- [ ] **Step 1: Volume, hardware → Ableton**
+
+For each of the 16 encoders: turn it and confirm the corresponding track's volume (in track order, left to right) moves in Live's mixer. Confirm direction (clockwise = increase) and range (7 o'clock = min, 5 o'clock = max) feel correct.
+
+- [ ] **Step 2: Volume, Ableton → hardware**
+
+For a few tracks, drag the volume fader in Live's UI with the mouse and confirm the corresponding encoder's LED ring updates to reflect the new position, without touching the hardware.
+
+- [ ] **Step 3: Mute, hardware → Ableton**
+
+For each of the 16 encoder-push buttons: press it and confirm the corresponding track's mute state toggles in Live.
+
+- [ ] **Step 4: Mute, Ableton → hardware (LED feedback — unconfirmed)**
+
+Toggle mute on a track from Live's UI and watch the corresponding encoder for any visible change (ring flicker, brightness, color). Report what you see either way:
+- If something visibly changes: good, feedback works in plain mode.
+- If nothing changes: expected possible outcome per the design doc — the e16 likely needs its SysEx remote-mode for per-encoder LED control, which is explicitly out of scope for this version. Not a bug to chase further right now.
+
+- [ ] **Step 5: Fewer-than-16-tracks edge case**
+
+Open or create a Live set with fewer than 16 tracks. Confirm Live doesn't show any errors, and that encoders/buttons beyond the last real track simply do nothing (no crash, no wrong-track behavior).
+
+- [ ] **Step 6: Commit any fixes made during verification**
+
+If any code changes were needed to get the above passing:
+
+```bash
+cd "/Users/williamwolf/Documents/OXI e16"
+git add -A
+git commit -m "Fix e16 mixer script issues found during hardware verification"
+```
