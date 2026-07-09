@@ -58,7 +58,7 @@ if __name__ == "__main__":
 Run: `pip3 install mido python-rtmidi`
 Expected: both packages install without error.
 
-- [ ] **Step 3: Run the probe and capture live hardware behavior**
+- [ ] **Step 3: Run the probe against whatever scene is currently active**
 
 Run: `python3 scripts/midi_probe.py`
 
@@ -74,15 +74,29 @@ Expected, per the documented protocol:
 - Push button: `note_on channel=0 note=0 velocity=<nonzero>` then `note_off channel=0 note=0 velocity=0`
 - Shift button: `note_on channel=0 note=16 ...` then `note_off channel=0 note=16 ...`
 
-If actual output differs (different channel, different CC/note numbers, or encoders send absolute 0-127 instead of relative deltas), stop here and update the design/plan before proceeding — Task 3's code assumes the documented behavior.
+The e16 stores its encoder/button MIDI behavior in an on-device **scene** (configured via the OXI desktop app, same mechanism the reference Bitwig script's README documents via its bundled `Bitwig.oxie16` scene file). Whatever scene is currently loaded on the hardware determines what this probe actually sees — it is not guaranteed to match the documented default.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: If the output doesn't match, configure and save a scene**
+
+If Step 3's output differs from what's expected (wrong channel, wrong CC/note numbers, encoders in absolute 0-127 mode instead of relative, etc.):
+
+1. Open the OXI desktop app with the e16 connected via USB.
+2. Create (or start from an existing) scene and set: encoders 1–16 → CC mode, Absolute, channel 1, CC numbers 1–16; encoder-push buttons → Note mode, channel 1, notes 0–15; Shift → note 16 (if configurable — it may be a fixed hardware function rather than a mappable one, in which case leave it as-is).
+3. Name the scene (e.g. "Ableton Mixer") and save it.
+4. Drag the scene onto a slot in the **On Device** list so it's written to the hardware's internal memory — loading it in the app alone does not persist it (this mirrors the Bitwig README's warning: "Clicking Save in the OXI App only saves to your computer's hard drive. You must click Set, and then drag the scene to the On Device list").
+5. Reboot the e16 to clear its cache, then re-run Step 3 to confirm the probe output now matches.
+
+If the e16 turns out not to support one of the required configurations (e.g. Shift isn't remappable, or note-based push feedback truly isn't controllable), stop and flag it — that changes what Task 3 can implement, don't guess past it.
+
+- [ ] **Step 5: Commit**
 
 ```bash
 cd "/Users/williamwolf/Documents/OXI e16"
 git add scripts/midi_probe.py
 git commit -m "Add raw MIDI probe script for e16 protocol verification"
 ```
+
+Note: if a scene was created/edited in Step 4, it lives on the device and in the OXI desktop app's own project file, not in this git repo. If the OXI app saves a scene file to disk (as seen with the Bitwig repo's `Bitwig.oxie16`), export it and add it here too — worth checking where the OXI app stores those files.
 
 ---
 

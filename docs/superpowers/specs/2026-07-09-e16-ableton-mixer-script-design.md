@@ -27,11 +27,19 @@ already matches what this script needs — no custom on-device SysEx scripting r
 - Encoder-push buttons send/receive Note on/off, channel 1, notes 0–15
   (note: CC number = encoder index + 1, so encoder *n* uses CC *n*; its push button uses note *n-1*)
 
-Action item before writing code: confirm on the actual hardware (e.g. via a MIDI monitor
-or Ableton's own MIDI log) that the e16 ships in / can be set to this mode, and that
-sending a CC message back on the same CC number moves the physical LED ring (confirmed
-behavior in the reference Bitwig extension for this exact hardware, `e16-controller-script/`,
-but not independently verified against Ableton).
+This behavior lives in an on-device **scene**, configured and saved via the OXI desktop
+app — the same mechanism the reference Bitwig script relies on (it ships a
+`Bitwig.oxie16` scene file and its README documents exactly this: set knobs to `Absolute
+CC` mode, drag the scene onto an **On Device** slot to persist it, reboot to clear
+cache). It is not yet known which scene is currently active on this hardware or whether
+it already matches the required layout.
+
+Action item before writing code: probe the hardware's actual raw MIDI output (not just
+trust the spreadsheet), and if it doesn't match, build and save a scene via the OXI
+desktop app that does. Also confirm that sending a CC message back on the same CC number
+moves the physical LED ring (confirmed behavior in the reference Bitwig extension for
+this exact hardware, `e16-controller-script/`, but not independently verified against
+Ableton).
 
 ## Architecture
 
