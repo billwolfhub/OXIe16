@@ -38,10 +38,11 @@ class E16(OptimizedControlSurface):
                     note_number,
                     name=f"Mute_Button_{track_index + 1}",
                 )
+                # ButtonElement defaults to velocity 127 (on) / 0 (off) via its
+                # built-in turn_on()/turn_off(); no explicit on/off values needed.
                 # NOTE: it's unconfirmed whether the e16 firmware does anything
                 # visible with this feedback in plain (non-SysEx) mode — see
                 # Task 5, verification step 4.
-                mute_button.set_on_off_values(127, 0)
                 strip.set_mute_button(mute_button)
                 self._mute_buttons.append(mute_button)
 
