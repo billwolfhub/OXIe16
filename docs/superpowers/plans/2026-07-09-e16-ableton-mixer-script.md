@@ -105,7 +105,7 @@ Note: if a scene was created/edited in Step 4, it lives on the device and in the
 **Files:**
 - Create: `e16_ableton/__init__.py`
 
-- [ ] **Step 1: Write the entry point**
+- [x] **Step 1: Write the entry point**
 
 ```python
 from .E16 import E16
@@ -115,13 +115,15 @@ def create_instance(c_instance):
     return E16(c_instance)
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 cd "/Users/williamwolf/Documents/OXI e16"
 git add e16_ableton/__init__.py
 git commit -m "Add e16_ableton package entry point"
 ```
+
+Done: commit `54f87bf`. Reviewed (spec ✅, quality ✅ approve) via Subagent-Driven Development.
 
 (This will fail to import until Task 3 creates `E16.py` — that's expected and fine at this stage; Ableton isn't loading it yet.)
 
@@ -132,7 +134,7 @@ git commit -m "Add e16_ableton package entry point"
 **Files:**
 - Create: `e16_ableton/E16.py`
 
-- [ ] **Step 1: Write the control surface**
+- [x] **Step 1: Write the control surface**
 
 ```python
 import Live
@@ -190,13 +192,15 @@ class E16(ControlSurface):
         super(E16, self).disconnect()
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 cd "/Users/williamwolf/Documents/OXI e16"
 git add e16_ableton/E16.py
 git commit -m "Implement e16 mixer control surface (volume + mute, 16 tracks)"
 ```
+
+Done: commit `75b5b75`. Reviewed (spec ✅, quality ✅ approve — two low-severity, non-blocking nits noted: vestigial no-op list-clearing in `disconnect()`, magic numbers `127`/`0` for on/off values. Not fixed, don't affect behavior).
 
 ---
 
