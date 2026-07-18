@@ -13,9 +13,7 @@ class E16(ControlSurface):
     def __init__(self, c_instance):
         super(E16, self).__init__(c_instance)
         with self.component_guard():
-            self._mixer = MixerComponent(
-                NUM_TRACKS, 0, with_eqs=False, with_filters=False
-            )
+            self._mixer = MixerComponent(NUM_TRACKS, 0)
             self._encoders = []
             self._mute_buttons = []
             for track_index in range(NUM_TRACKS):
