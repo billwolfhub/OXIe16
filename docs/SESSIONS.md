@@ -86,3 +86,25 @@ the earlier timing-race problem). Findings:
 **Next steps:** Task 2 (package skeleton, `e16_ableton/__init__.py`) and Task 3 (mixer
 implementation, `e16_ableton/E16.py`) via Subagent-Driven Development, per the plan.
 Then Task 4 (install + load check) and Task 5 (manual functional verification) live/inline.
+
+**Task 2 and Task 3 completed** via Subagent-Driven Development (fresh implementer
+subagent per task, then spec-compliance review, then code-quality review, each approved
+without requested changes):
+- `e16_ableton/__init__.py` (commit `54f87bf`) — Ableton's `create_instance(c_instance)`
+  entry point, imports `E16` from `E16.py`.
+- `e16_ableton/E16.py` (commit `75b5b75`) — the `ControlSurface` subclass: 16
+  `EncoderElement`s (CC 1-16, channel 0, absolute) wired to `MixerComponent` volume
+  controls, 16 `ButtonElement`s (notes 0-15, channel 0) wired to mute buttons, for the
+  first 16 tracks. Matches the plan exactly. Code-quality review noted two low-severity,
+  non-blocking nits (vestigial no-op list-clearing in `disconnect()`, magic numbers for
+  on/off values `127`/`0`) — not fixed, don't affect behavior, approved as-is.
+- Neither file has been run/imported anywhere yet — no `Live`/`_Framework` available
+  outside Ableton itself, so this is unverified beyond `python3 -m py_compile` syntax
+  checks until Task 4 (install into Ableton) actually loads it.
+
+**Next steps:** Task 4 — symlink `e16_ableton/` into
+`~/Music/Ableton/User Library/Remote Scripts/`, assign the controller in Live 12,
+check Live's log for load errors. Then Task 5 — manual functional verification
+(volume both directions, mute both directions, note the open question about whether
+mute-button LED feedback does anything visible, fewer-than-16-tracks edge case). Both
+need to run live/inline with the user, not via subagent.
