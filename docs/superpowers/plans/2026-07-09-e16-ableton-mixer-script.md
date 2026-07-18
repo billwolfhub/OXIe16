@@ -17,7 +17,7 @@
 **Files:**
 - Create: `scripts/midi_probe.py`
 
-- [ ] **Step 1: Write the probe script**
+- [x] **Step 1: Write the probe script**
 
 ```python
 #!/usr/bin/env python3
@@ -53,12 +53,12 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 2: Install dependencies**
+- [x] **Step 2: Install dependencies**
 
 Run: `pip3 install mido python-rtmidi`
 Expected: both packages install without error.
 
-- [ ] **Step 3: Run the probe against whatever scene is currently active**
+- [x] **Step 3: Run the probe against whatever scene is currently active**
 
 Run: `python3 scripts/midi_probe.py`
 
@@ -76,19 +76,19 @@ Expected, per the documented protocol:
 
 The e16 stores its encoder/button MIDI behavior in an on-device **scene** (configured via the OXI desktop app, same mechanism the reference Bitwig script's README documents via its bundled `Bitwig.oxie16` scene file). Whatever scene is currently loaded on the hardware determines what this probe actually sees — it is not guaranteed to match the documented default.
 
-- [ ] **Step 4: If the output doesn't match, configure and save a scene**
+- [x] **Step 4: If the output doesn't match, configure and save a scene**
 
-If Step 3's output differs from what's expected (wrong channel, wrong CC/note numbers, encoders in absolute 0-127 mode instead of relative, etc.):
+**Actual findings (superseding the "expected" values above):**
+- The scene loaded on the hardware at the start of this session (unnamed/default) had encoders 1–16 already in absolute CC mode, but on **CC 32–47** (encoder *n* → CC 31+n), not CC 1–16. Values ramp smoothly across 0–127 (absolute), not the small relative deltas the spreadsheet's factory-default table describes.
+- That original scene had **no push-button mapping at all** — clicks produced no MIDI message on any of the 3 ports.
+- Built a new scene named **"Ableton Tst"** in the OXI desktop app to fix this:
+  - Turns: left untouched — already defaulted to CC 1–16, absolute ("CC Abs"), channel 1, matching spec exactly.
+  - Pushes: had to explicitly set, per encoder: Type = Note, Note number = (encoder index − 1) i.e. 0–15, **Velocity = 127** (was defaulting to 0, which is why nothing sent — velocity-0 Note On is a no-op), **Output = the explicit USB option** (was defaulting to `ALL`, which per the reference Bitwig script's README can route to the physical TRS ports instead of USB, bypassing the computer), **Channel = fixed 1** (was defaulting to a dynamic `Page`-linked value instead of a fixed channel).
+  - Shift was **not configured** — out of scope, this project's mapping doesn't use it (confirmed with the user).
+- Re-probed after the fixes: confirmed clean `note_on`/`note_off channel=0 note=<0-15> velocity=127/0` pairs for all 16 pushes, and reconfirmed CC 1–16 absolute turns on this scene.
+- Persistence confirmed: scene set, dragged onto an On Device slot, and the e16 rebooted — "Ableton Tst" is now the persisted on-device scene.
 
-1. Open the OXI desktop app with the e16 connected via USB.
-2. Create (or start from an existing) scene and set: encoders 1–16 → CC mode, Absolute, channel 1, CC numbers 1–16; encoder-push buttons → Note mode, channel 1, notes 0–15; Shift → note 16 (if configurable — it may be a fixed hardware function rather than a mappable one, in which case leave it as-is).
-3. Name the scene (e.g. "Ableton Mixer") and save it.
-4. Drag the scene onto a slot in the **On Device** list so it's written to the hardware's internal memory — loading it in the app alone does not persist it (this mirrors the Bitwig README's warning: "Clicking Save in the OXI App only saves to your computer's hard drive. You must click Set, and then drag the scene to the On Device list").
-5. Reboot the e16 to clear its cache, then re-run Step 3 to confirm the probe output now matches.
-
-If the e16 turns out not to support one of the required configurations (e.g. Shift isn't remappable, or note-based push feedback truly isn't controllable), stop and flag it — that changes what Task 3 can implement, don't guess past it.
-
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "/Users/williamwolf/Documents/OXI e16"
