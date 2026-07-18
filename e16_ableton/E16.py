@@ -1,5 +1,5 @@
 import Live
-from _Framework.ControlSurface import ControlSurface
+from _Framework.ControlSurface import OptimizedControlSurface
 from _Framework.MixerComponent import MixerComponent
 from _Framework.EncoderElement import EncoderElement
 from _Framework.ButtonElement import ButtonElement
@@ -9,7 +9,7 @@ NUM_TRACKS = 16
 MIDI_CHANNEL = 0  # e16 channel 1, 0-indexed
 
 
-class E16(ControlSurface):
+class E16(OptimizedControlSurface):
     def __init__(self, c_instance):
         super(E16, self).__init__(c_instance)
         with self.component_guard():
