@@ -45,7 +45,7 @@ Remotify/Control Surface Studio) to a hand-written Ableton Live 12 script for th
   problems — the print output arrived empty twice) or whether those events genuinely don't
   appear as plain Note messages on these ports.
 
-**Open questions / next steps:**
+**Open questions / next steps (resolved this session, kept for history):**
 1. Re-run `python3 scripts/midi_probe.py` interactively (user runs it themselves, no
    timing race) to: (a) confirm push-button and Shift behavior, (b) check the other two
    ports, (c) sweep encoders 2-16 to learn the full current CC layout (likely 32-47, but
@@ -57,3 +57,32 @@ Remotify/Control Surface Studio) to a hand-written Ableton Live 12 script for th
    and `E16.py`) — user has approved Subagent-Driven Development for those two
    implementation tasks specifically (Tasks 1, 4, 5 are being run live/inline instead,
    since they need real-time hardware interaction that a dispatched subagent can't do).
+
+## 2026-07-10 (continued)
+
+**Task 1 completed.** Re-ran the probe interactively (user running it directly avoided
+the earlier timing-race problem). Findings:
+- Confirmed sweeping encoders 2-16 on the original/default scene: encoder *n* → CC (31+n),
+  i.e. CC32-47, absolute, channel 1 — original scene was not factory default.
+- Confirmed on that same original scene: encoder-push buttons produced **no MIDI message
+  at all**, on any of the 3 ports. Not a port-routing issue — the scene simply didn't map
+  pushes to anything.
+- Built a new on-device scene, **"Ableton Tst"**, in the OXI desktop app:
+  - Turns: left as default — already CC1-16, absolute ("CC Abs"), channel 1. Exactly matches spec.
+  - Pushes: had to explicitly configure each of the 16. Default push settings were broken
+    three ways: Velocity defaulted to `0` (a no-op — fixed to `127`), Output defaulted to
+    `ALL` (per the reference Bitwig script's README, this can route to physical TRS jacks
+    instead of USB, bypassing the computer — changed to the explicit USB output), and
+    Channel defaulted to a dynamic `Page`-linked value instead of a fixed number (changed
+    to fixed `1`). Note numbers set sequentially 0-15 per encoder.
+  - Shift was deliberately left unconfigured — out of scope, this project doesn't use it.
+- Verified via live probe: all 16 pushes now produce clean
+  `note_on channel=0 note=<0-15> velocity=127` / `note_off ... velocity=0` pairs, and
+  turns still produce the expected absolute CC1-16 behavior on this new scene.
+- Scene persisted to hardware: Set → dragged onto an On Device slot → e16 rebooted.
+- Confirmed protocol now matches the design doc's original assumption exactly, no code
+  changes needed to the planned `E16.py`.
+
+**Next steps:** Task 2 (package skeleton, `e16_ableton/__init__.py`) and Task 3 (mixer
+implementation, `e16_ableton/E16.py`) via Subagent-Driven Development, per the plan.
+Then Task 4 (install + load check) and Task 5 (manual functional verification) live/inline.
