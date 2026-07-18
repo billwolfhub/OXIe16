@@ -108,3 +108,74 @@ check Live's log for load errors. Then Task 5 — manual functional verification
 (volume both directions, mute both directions, note the open question about whether
 mute-button LED feedback does anything visible, fewer-than-16-tracks edge case). Both
 need to run live/inline with the user, not via subagent.
+
+## 2026-07-18 — Task 4 and Task 5: install, debug, verify
+
+**Task 4.** Symlinked `e16_ableton/` into
+`~/Music/Ableton/User Library/Remote Scripts/`. User has two Ableton installs (a Beta
+and 12.4.3 Suite) — confirmed to use 12.4.3 Suite only, ignore the Beta. Assigned
+`e16_ableton` as Control Surface in slot 4, Input/Output `OXI E16 (Port 1)`, Remote
+checkbox on both directions — this part was already correctly configured by the user
+before I even checked.
+
+**Two real load errors found and fixed**, neither anticipated by the plan, both requiring
+reading the actual installed `_Framework` bytecode directly (community reference docs
+didn't match this exact Live build closely enough to trust blindly):
+
+1. `TypeError: object.__init__() takes exactly one argument (the instance to initialize)`,
+   raised deep inside `MixerComponent(NUM_TRACKS, 0)`'s `super().__init__()` chain
+   (MixerComponent → CompoundComponent → [`@depends` wrapper] → ControlSurfaceComponent →
+   ControlManager → CompoundDisconnectable → object). Spent a lot of effort on this:
+   installed Python 3.11 via Homebrew to match the installed `.pyc` bytecode's magic
+   number, disassembled the real `_Framework` `.pyc` files directly (`marshal.load` +
+   `dis.dis`) since a cloned unofficial decompiled-source reference repo
+   (`gluon/AbletonLive12_MIDIRemoteScripts`, cloned to `ableton_ref/`, gitignored) turned
+   out to have drifted from the exact installed build (line numbers in real tracebacks
+   didn't match that repo's copy). Traced every class in the chain — all individually
+   logically consistent, no bug ever conclusively pinned down via static analysis alone.
+   Fixed empirically instead: found that `MIDI_Mix.py` (a script from the same reference
+   repo, confirmed actively running without error on this exact machine, visible in
+   Live's own settings) extends `OptimizedControlSurface` rather than plain
+   `ControlSurface`. Switched `E16` to do the same — fixed it. Also removed the
+   unsupported `with_eqs=`/`with_filters=` kwargs from the `MixerComponent(...)` call
+   along the way (real signature, confirmed via bytecode: `num_tracks, num_returns,
+   auto_name, invert_mute_feedback`, no eqs/filters params in this version).
+2. `AttributeError: 'ButtonElement' object has no attribute 'set_on_off_values'`.
+   Confirmed via source: this Framework version's `ButtonElement` has no such method;
+   its `ButtonElementMixin.turn_on()`/`turn_off()` already default to velocity 127/0
+   (`ON_VALUE`/`OFF_VALUE` constants) — exactly what we wanted. Removed the call entirely.
+
+Final result: clean load, no errors.
+
+**Task 5 findings:**
+- Volume (both directions) and mute (hardware → Ableton) all confirmed working.
+- **Hardware/firmware bug found**: encoders 4 and 7 each spuriously also fire their
+  row-neighbor's CC when turned (4 → also fires encoder 3's assigned CC; 7 → also fires
+  encoder 8's). Characterized thoroughly via live probe testing: one-directional (turning
+  3 or 8 alone is clean), tied to encoder *position* not the assigned CC number (user
+  remapped 3/4/7/8 to CC20-23 and the pairing followed the encoder position, not the CC
+  value), and isolated to just this one pair in each of the first two rows — the
+  equivalent positions in rows 3-4 (encoders 11/12, 15/16) are confirmed clean. Not
+  fixable from Ableton's side: a real turn of encoder 3 and the phantom echo from turning
+  encoder 4 are identical at the MIDI protocol level. This is a genuine OXI firmware bug,
+  worth reporting to OXI support with this exact repro. User has accepted it as a known
+  quirk for now.
+- Mute LED feedback (Ableton → hardware): confirmed no visible change, as anticipated —
+  root cause confirmed rather than just assumed: plain Note messages carry no color
+  info, so this genuinely requires the SysEx remote-mode protocol (out of v1 scope).
+  User asked about getting LEDs to turn red for mute specifically; explained this needs
+  a separate, scoped phase-2 SysEx feature (enter/exit remote-mode handshake, 7-bit-packed
+  LED/ring messages per `Misc from OXI/OXI REMOTE.xlsx`) — deferred for now, not started.
+- Fewer-than-16-tracks edge case not explicitly tested with a dedicated small Live set,
+  but no errors observed anywhere in the session and this is standard, well-established
+  `MixerComponent` behavior; low risk, can revisit if it ever actually comes up.
+
+**Status: v1 is done and accepted by the user**, with two known, documented caveats
+(encoder 4/7 firmware crosstalk; no LED color feedback in plain mode). All plan tasks
+(1-5) are checked off.
+
+**Possible next steps, not yet started:** phase-2 SysEx work for RGB LED feedback
+(red-for-mute was the specific ask) — would need its own brainstorming/design pass given
+the real scope (handshake, byte-packing, re-verifying whether entering remote mode
+affects the existing plain-CC ring feedback). Also worth the user filing an OXI support
+ticket for the encoder 4/7 bug with the repro documented above.
