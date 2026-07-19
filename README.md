@@ -71,6 +71,8 @@ Then in Ableton Live:
 
 If something goes wrong, check Live's `Log.txt` (`~/Library/Preferences/Ableton/Live <version>/Log.txt`) for a Python traceback — search for `E16` or `e16_ableton`.
 
+**When iterating on `E16.py`**: a full quit-and-reopen of Live is needed to reliably pick up code changes. Deselecting and reselecting `e16_ableton` in the Control Surface dropdown can *look* like a reload (fresh "Initializing..." log lines, no errors) while actually still running the previous version — confirmed the hard way across several rounds of live debugging. If a fix doesn't seem to take effect, restart Live fully before assuming the fix is wrong.
+
 ## Diagnostic tool
 
 `scripts/midi_probe.py` prints raw MIDI messages from a connected device — useful for confirming the e16's scene is actually sending what you configured, independent of Ableton.
