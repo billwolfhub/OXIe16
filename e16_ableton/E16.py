@@ -87,6 +87,7 @@ class E16(OptimizedControlSurface):
                 strip.set_mute_button(mute_button)
                 self._mute_buttons.append(mute_button)
 
+        self.log_message("E16: sending ENTER_REMOTE_MODE: %s" % (ENTER_REMOTE_MODE,))
         self._send_midi(ENTER_REMOTE_MODE)
         self._setup_mute_led_listeners()
 
@@ -95,6 +96,7 @@ class E16(OptimizedControlSurface):
         # off = unmuted). Attached once at startup against whichever track each
         # channel strip currently holds; does not follow later track
         # reordering/add/remove within the session.
+        attached = 0
         for index in range(NUM_TRACKS):
             strip = self._mixer.channel_strip(index)
             track = strip.track
@@ -103,16 +105,21 @@ class E16(OptimizedControlSurface):
             listener = MuteListener(self, index)
             track.add_mute_listener(listener)
             self._mute_listeners[index] = (track, listener)
+            attached += 1
             self._update_mute_led(index)
+        self.log_message("E16: attached %d mute listeners" % attached)
 
     def _update_mute_led(self, index):
         strip = self._mixer.channel_strip(index)
         track = strip.track
         if track is None:
+            self.log_message("E16: _update_mute_led(%d) called, but strip.track is None" % index)
             return
         r, g, b = MUTE_COLOR if track.mute else UNMUTE_COLOR
         amount = 16383 if track.mute else 0
-        self._send_midi(make_led_ring_sysex(index, amount, False, r, g, b))
+        msg = make_led_ring_sysex(index, amount, False, r, g, b)
+        self.log_message("E16: _update_mute_led(%d) mute=%s sending: %s" % (index, track.mute, msg))
+        self._send_midi(msg)
 
     def disconnect(self):
         for index, (track, listener) in self._mute_listeners.items():
