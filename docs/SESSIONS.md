@@ -179,3 +179,47 @@ Final result: clean load, no errors.
 the real scope (handshake, byte-packing, re-verifying whether entering remote mode
 affects the existing plain-CC ring feedback). Also worth the user filing an OXI support
 ticket for the encoder 4/7 bug with the repro documented above.
+
+## 2026-07-18 (continued) — GitHub repo, README, and a mute-LED attempt
+
+Created public GitHub repo `billwolfhub/OXIe16` and pushed the project. Added a
+`README.md` covering scene setup, install steps, the probe tool, and known issues.
+
+**Third-party reference script.** User found and shared a different, more advanced e16
+Ableton script (`/Users/williamwolf/Downloads/__init__.py`) — maps encoders to the
+selected device's parameters (not a fixed mixer), uses relative-mode encoders, and
+implements the SysEx "remote mode" protocol for RGB LED rings and OLED text labels.
+Kept a copy at `reference-scripts/oxi_e16_device_mapper/` (gitignored, not committed —
+third-party code, kept locally for research only). Installed it into Ableton under that
+name (separate from `e16_ableton`, since both can't own the same MIDI port
+simultaneously) and confirmed live on hardware: it does produce visible LED ring and
+OLED changes when selecting different devices/tracks. This proved the SysEx approach is
+viable on this exact unit.
+
+**Attempted to port SysEx mute-LED feedback into our own script** (red ring when muted,
+off when unmuted), adapting the reference script's `pack_7bit`/`make_led_ring_sysex`
+helpers and enter/exit remote-mode handshake almost directly. Load succeeded with no
+errors. Debugging the "doesn't turn red" symptom took several rounds (added
+`log_message`/`show_message` diagnostics) that were mostly resolved by simply reloading
+correctly rather than a code bug — eventually confirmed working: mute did turn the ring
+red, unmute correctly went dark.
+
+**But it broke volume control**: after the mute-LED code was active, turning a volume
+encoder started jumping between min and max instead of tracking smoothly. Working
+theory: the LED_RING_CMD's 14-bit "amount" field isn't purely a cosmetic overlay on this
+hardware — it likely also resets the encoder's internal absolute-position reference.
+Since the mute-LED code sends `amount=0` (unmuted) or `amount=16383` (muted) purely
+intending a color signal, it was inadvertently desyncing the encoder's tracked position
+from Ableton's actual volume value every time mute state changed.
+
+**Reverted** (commit `9b46cf7`) back to the known-good plain-CC/Note v1 behavior — no
+SysEx, no mute-LED color, volume and mute both working normally again.
+
+**For next time, if red-mute LEDs are revisited:** the amount field probably needs to
+carry the *actual current volume position* (14-bit, computed from
+`track.mixer_device.volume`) on every ring update, not a fixed 0/16383 — i.e., color and
+position likely need to be sent together, kept in sync, every time either volume or mute
+changes, rather than treated as independent signals. That's meaningfully more state
+tracking than what was attempted here (a value listener on volume in addition to the one
+on mute, recomputing and resending the full ring message on either change). Worth a
+proper design pass before the next attempt, per the earlier note.
