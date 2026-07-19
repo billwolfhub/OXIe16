@@ -223,3 +223,29 @@ changes, rather than treated as independent signals. That's meaningfully more st
 tracking than what was attempted here (a value listener on volume in addition to the one
 on mute, recomputing and resending the full ring message on either change). Worth a
 proper design pass before the next attempt, per the earlier note.
+
+## 2026-07-19 — Confirmed: SysEx remote mode cannot replace the scene for input
+
+User asked whether volume + mute could be reproduced entirely through the SysEx remote
+protocol, avoiding the need for a custom on-device scene at all (prompted by observing
+that `reference-scripts/oxi_e16_device_mapper` "seemed to work" without us building
+anything for it specifically). Tested empirically rather than trusting
+`OXI REMOTE.xlsx`'s documentation structure alone (which already turned out incomplete/
+misleading more than once this session): loaded the reference script (enters remote mode
+via `ENTER_REMOTE_MODE` on init) as the active control surface, then ran
+`scripts/midi_probe.py` listening on the same port simultaneously (CoreMIDI allows
+multiple listeners on one input port) while turning a knob and pressing a button.
+
+**Result: identical plain-MIDI output** (`control_change channel=0 control=<n>`,
+`note_on`/`note_off channel=0 note=<n>`) whether or not remote mode is active. Confirms
+remote mode is strictly an *additional output* channel (LEDs, OLED) layered on top of
+the existing scene-driven input mechanism — it does not change, replace, or bypass how
+encoder turns and button pushes get reported. There is no way to avoid configuring a
+scene for volume/mute input; that dependency is inherent to the hardware. This closes
+out the open question — no further exploration needed here unless OXI ships new firmware
+that changes this.
+
+(Also noted along the way: switching *to* an already-loaded, unmodified script works
+fine without restarting Ableton — the earlier "needs a full restart"
+[[feedback-ableton-remote-script-reload]] finding is specifically about picking up
+*edited* source, not about switching between scripts in general.)
