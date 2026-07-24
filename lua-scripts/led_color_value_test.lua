@@ -32,11 +32,14 @@ end
 
 function page.onInit()
     page.setTitle("LED Test")
-    -- Unconditional diagnostic: light encoder 1's ring full brightness,
-    -- default color, immediately at startup -- before any interaction.
-    -- If this alone doesn't light up, the issue is leds.update() itself
-    -- (or how/where this control got assigned), not our value/color logic.
-    leds.update(1, 16383, 0)
+    -- Broad diagnostic: light every ring on the page full brightness, each
+    -- with a different color index (0-15), immediately at startup, no
+    -- assignment or interaction required. Tells us in one shot whether
+    -- leds.update works at all, whether our index assumption was wrong, and
+    -- which color values (if any) are actually visible.
+    for i = 1, 16 do
+        leds.update(i, 16383, i - 1)
+    end
     slots.update(1, "INIT")
 end
 
