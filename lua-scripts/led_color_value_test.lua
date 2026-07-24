@@ -45,10 +45,19 @@ end
 
 function controller.onEncoderTurn(enc)
     if enc.id ~= 1 then return end
+    -- Diagnostic: report the raw enc fields on separate CCs so we can see
+    -- exactly what's being delivered, independent of our own value tracking.
+    -- CC5 = enc.increment, offset by 64 so negative values show as <64.
+    -- CC6 = enc.value (firmware's internal 14-bit value) mod 128.
+    -- CC7 = enc.scaled (firmware's scaled value) mod 128.
+    midi.sendCC(0, 0, 5, (enc.increment + 64) % 128)
+    midi.sendCC(0, 0, 6, enc.value % 128)
+    midi.sendCC(0, 0, 7, enc.scaled % 128)
+
     value = value + enc.increment
     if value < 0 then value = 0 end
     if value > 127 then value = 127 end
-    midi.sendCC(0, 0, 1, value) -- optional: mirror out as CC1, visible on a MIDI monitor
+    midi.sendCC(0, 0, 1, value)
     redraw()
 end
 
