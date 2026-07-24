@@ -249,3 +249,56 @@ that changes this.
 fine without restarting Ableton — the earlier "needs a full restart"
 [[feedback-ableton-remote-script-reload]] finding is specifically about picking up
 *edited* source, not about switching between scripts in general.)
+
+## 2026-07-23 — On-device Lua scripting API: promising, but leds.update() doesn't work
+
+User shared OXI's `OXI E16 Lua Scripting API v1.1.0` PDF — scripts run **on the device
+itself**, live inside a scene, with callbacks for encoder turn/press, SysEx in/out, page
+switching, persistent per-scene variables, and (per the docs) independent LED
+ring value+color control via `leds.update(index, value, color)`. This looked like a much
+more promising path to red-mute LEDs than the Ableton-hosted SysEx approach that broke
+volume tracking and was reverted earlier — since here, value and color would be set
+together, from the same script that owns the encoder, avoiding the position-desync
+problem entirely.
+
+**Built a minimal test script** (`lua-scripts/led_color_value_test.lua`, committed and
+iterated in place): one manual-mode encoder tracks a value and shows it as ring
+fill + normal color; its paired push button toggles a "muted" ring color. Debugging this
+surfaced two real findings, one fixed, one not:
+
+1. **`enc.increment` reads as `0` even with `manual=true` set** in the assignment —
+   confirmed via diagnostic CCs mirroring `enc.increment`/`enc.value`/`enc.scaled`
+   directly. Despite the assignment and the app's UI showing "Script Mode: Manual," the
+   encoder behaves like a normal managed control: `enc.value`/`enc.scaled` track
+   correctly and smoothly, `enc.increment` just isn't populated. **Fixed** by reading
+   `enc.scaled` directly instead of accumulating from `enc.increment`.
+2. **`leds.update()` does not produce any visible effect**, full stop — tested
+   exhaustively: normal fill amount with a real nonzero value (confirmed via CC that the
+   value itself was correct), an unconditional full-brightness sweep across all 16 rings
+   with 16 different color indices at startup (no assignment or interaction required),
+   and a rapid on/off blink toggled on every turn event. All silent, no errors, no visible
+   change, ever. Meanwhile everything else in the same script — `page.onInit`,
+   `controller.onEncoderTurn`/`onEncoderPress`, `slots.update` (confirmed working: "INIT"
+   and "MUTE" labels both appeared correctly on screen), `midi.sendCC` — all worked
+   exactly as documented. **Conclusion: `leds.update()` is not functional on the
+   currently-installed firmware**, even though the rest of the v1.1.0 Lua API is. Matches
+   the same doc/firmware-version gap already suspected before starting this (user is
+   separately waiting on an OXI documentation + OS update).
+
+**Also re-confirmed the "needs a full reload" gotcha applies here too**: in-place script
+edits in the OXI app didn't reliably take effect; deleting and re-adding the script (not
+just re-saving) was needed to force a real reload. Same category of issue as
+[[feedback-ableton-remote-script-reload]], different app.
+
+**Side effect to clean up later**: this testing reused the **"Ableton Tst"** scene (the
+one the working v1 mixer script depends on) rather than a separate test scene. Encoder
+1's Turn Destination 1 got reassigned from `CC Abs / channel 1 / CC 1` to
+`Script Mode`, ID 1, to run this test. **Before returning to the mixer script**, this
+needs to be reverted back to plain CC-Absolute (or the test should be redone in a
+dedicated separate scene) or the mixer script will lose volume control on track 1.
+
+**Status:** on-device Lua scripting works well for everything except LED rings, which is
+the one thing needed for the red-mute feature. Worth revisiting once OXI ships whatever
+update they're working on. This, plus the encoder 4/7 crosstalk bug, plus the
+SysEx-ring-amount side effect found earlier, would make a good consolidated bug report
+to send OXI whenever that happens.
