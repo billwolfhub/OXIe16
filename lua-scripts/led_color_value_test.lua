@@ -43,6 +43,8 @@ function page.onInit()
     slots.update(1, "INIT")
 end
 
+local blink_on = false
+
 function controller.onEncoderTurn(enc)
     if enc.id ~= 1 then return end
     -- enc.increment reads as 0 despite manual=true (confirmed via diagnostic
@@ -52,7 +54,16 @@ function controller.onEncoderTurn(enc)
     if value < 0 then value = 0 end
     if value > 127 then value = 127 end
     midi.sendCC(0, 0, 1, value)
-    redraw()
+
+    -- No timer API exists, so approximate "blink" by toggling full-on/off on
+    -- every turn event -- spinning the knob quickly should flicker the ring
+    -- if leds.update has any visible effect at all.
+    blink_on = not blink_on
+    if blink_on then
+        leds.update(1, 16383, 2)
+    else
+        leds.update(1, 0, 0)
+    end
 end
 
 function controller.onEncoderPress(enc)
