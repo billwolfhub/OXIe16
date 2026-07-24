@@ -32,7 +32,12 @@ end
 
 function page.onInit()
     page.setTitle("LED Test")
-    redraw()
+    -- Unconditional diagnostic: light encoder 1's ring full brightness,
+    -- default color, immediately at startup -- before any interaction.
+    -- If this alone doesn't light up, the issue is leds.update() itself
+    -- (or how/where this control got assigned), not our value/color logic.
+    leds.update(1, 16383, 0)
+    slots.update(1, "INIT")
 end
 
 function controller.onEncoderTurn(enc)
