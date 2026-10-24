@@ -7,8 +7,7 @@ This is a hand-written port of an equivalent [Remotify](https://remotify.io/)-ge
 ## What's in this repo
 
 - `e16_ableton/` — the actual Ableton Remote Script (`__init__.py` + `E16.py`)
-- `docs/superpowers/specs/` and `docs/superpowers/plans/` — the design doc and implementation plan
-- `docs/SESSIONS.md` — a running log of the whole build, including a fairly deep debugging saga (worth reading if you hit a similar `_Framework` error)
+- `docs/SESSIONS.md` — short notes on the e16 remote-mode protocol, Live framework gotchas, and how the script was built
 - `MFT script from remotify/` — the original Midi Fighter Twister script this was ported from
 
 ## Prerequisites
