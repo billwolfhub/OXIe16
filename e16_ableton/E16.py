@@ -10,7 +10,7 @@ from _Framework.InputControlElement import MIDI_CC_TYPE, MIDI_NOTE_TYPE
 NUM_TRACKS = 16
 MIDI_CHANNEL = 0  # e16 channel 1, 0-indexed
 
-# Remote-mode SysEx protocol (Misc from OXI/OXI REMOTE.xlsx, verified against
+# Remote-mode SysEx protocol (OXI's OXI REMOTE.xlsx, verified against
 # firmware 2026-10 with scripts/sysex_ring_test.py). In remote mode encoders
 # report RELATIVE deltas (CW 1-8, CCW 127-120) and the host draws the rings.
 SYSEX_HEADER = (0xF0, 0x00, 0x21, 0x5B, 0x02, 0x01)

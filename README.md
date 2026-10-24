@@ -2,7 +2,7 @@
 
 An Ableton Live 12 Remote Script for the [OXI e16](https://oxiinstruments.com/) MIDI controller: 16 encoders map to Track Volume, and their push buttons toggle Track Mute, for the first 16 tracks in the current Live set. Each encoder's LED ring shows the track's real volume and is **green when the track is active, red when muted**. The OLED shows each track's name (first 4 characters, with a leading `1-` style number stripped). **Tap a push to mute/unmute; hold a push and turn to control that track's FX send 1** (ring turns blue). It updates whenever volume or mute changes, from the hardware, the mouse, or automation.
 
-This is a hand-written port of an equivalent [Remotify](https://remotify.io/)-generated script for a Midi Fighter Twister, rebuilt for the e16 rather than with any generator tool. The script puts the e16 into its SysEx *remote mode* while connected: encoders then report relative deltas and the script draws the rings itself (see `Misc from OXI/OXI REMOTE.xlsx`). This needs a recent e16 firmware; with the older firmware, ring colour was not usable.
+This is a hand-written port of an equivalent [Remotify](https://remotify.io/)-generated script for a Midi Fighter Twister, rebuilt for the e16 rather than with any generator tool. The script puts the e16 into its SysEx *remote mode* while connected: encoders then report relative deltas and the script draws the rings itself (OXI publishes the protocol as `OXI REMOTE.xlsx`). This needs a recent e16 firmware; with the older firmware, ring colour was not usable.
 
 ## What's in this repo
 
@@ -10,7 +10,6 @@ This is a hand-written port of an equivalent [Remotify](https://remotify.io/)-ge
 - `docs/superpowers/specs/` and `docs/superpowers/plans/` — the design doc and implementation plan
 - `docs/SESSIONS.md` — a running log of the whole build, including a fairly deep debugging saga (worth reading if you hit a similar `_Framework` error)
 - `MFT script from remotify/` — the original Midi Fighter Twister script this was ported from
-- `Misc from OXI/OXI REMOTE.xlsx` — OXI's documented MIDI/SysEx protocol reference for the e16 (and OXI ONE / ONE MKII)
 
 ## Prerequisites
 
