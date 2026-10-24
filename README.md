@@ -6,7 +6,8 @@ This is a hand-written port of an equivalent [Remotify](https://remotify.io/)-ge
 
 ## What's in this repo
 
-- `e16_ableton/` — the actual Ableton Remote Script (`__init__.py` + `E16.py`)
+- `e16_ableton/` — the Ableton Remote Script: volume, tap-to-mute, push+twist for FX send 1
+- `e16_groups/` — a variant that also handles group tracks: hold a group's push to open/close it, groups marked `*` on the OLED with a purple (folded) or yellow (open) ring. Use one script or the other, not both
 - `docs/SESSIONS.md` — short notes on the e16 remote-mode protocol, Live framework gotchas, and how the script was built
 - `MFT script from remotify/` — the original Midi Fighter Twister script this was ported from
 
@@ -26,6 +27,7 @@ Symlink this repo's `e16_ableton/` folder into Ableton's Remote Scripts director
 ```bash
 mkdir -p ~/Music/Ableton/User\ Library/Remote\ Scripts
 ln -sfn "$(pwd)/e16_ableton" ~/Music/Ableton/User\ Library/Remote\ Scripts/e16_ableton
+ln -sfn "$(pwd)/e16_groups" ~/Music/Ableton/User\ Library/Remote\ Scripts/e16_groups   # optional variant
 ```
 
 (Run that from this repo's root. Using a symlink means future edits here take effect on the next reload, no copying needed.)
@@ -33,13 +35,13 @@ ln -sfn "$(pwd)/e16_ableton" ~/Music/Ableton/User\ Library/Remote\ Scripts/e16_a
 Then in Ableton Live:
 1. Fully quit and reopen Live (Remote Scripts are only scanned on launch).
 2. **Settings → Link, Tempo & MIDI**.
-3. In a Control Surface slot, select **e16_ableton**.
+3. In a Control Surface slot, select **e16_ableton** (or **e16_groups**, not both).
 4. Set both **Input** and **Output** to the e16's MIDI port (shows up as something like `OXI E16 (Port 1)`).
 5. Confirm the **Remote** checkbox is enabled for that port in both the Input Ports and Output Ports tables further down the same settings page.
 
 If something goes wrong, check Live's `Log.txt` (`~/Library/Preferences/Ableton/Live <version>/Log.txt`) for a Python traceback — search for `E16` or `e16_ableton`.
 
-**When iterating on `E16.py`**: a full quit-and-reopen of Live is needed to reliably pick up code changes. Deselecting and reselecting `e16_ableton` in the Control Surface dropdown can *look* like a reload (fresh "Initializing..." log lines, no errors) while actually still running the previous version — confirmed the hard way across several rounds of live debugging. If a fix doesn't seem to take effect, restart Live fully before assuming the fix is wrong.
+**When iterating on `E16.py`**: `__init__.py` reloads `E16.py` each time Live loads the script, so setting the Control Surface slot to **None** and back to the script picks up your edits without restarting Live. A newly added script folder only shows up in the dropdown after a Live restart, and changes to `__init__.py` itself also need one.
 
 ## Known issues
 
