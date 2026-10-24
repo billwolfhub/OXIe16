@@ -86,6 +86,5 @@ Pick the e16's port from the printed list, then turn/press its controls and watc
 
 ## Known issues
 
-- **Encoders 4 and 7 had a firmware bug** (seen on the older firmware, not yet re-tested on the current one): turning either one also spuriously fires its row-neighbor's CC (encoder 4 → also fires encoder 3's CC; encoder 7 → also fires encoder 8's). Confirmed via extensive isolated testing to be tied to encoder position, not the assigned CC number, and confirmed not fixable from the Ableton side — a real turn of the neighboring encoder and the phantom echo are indistinguishable at the MIDI protocol level. Every other encoder (including the equivalent positions in rows 3–4) is clean. Worth reporting to OXI support.
+- **Fixed in current firmware:** older e16 firmware had a bug where turning encoder 4 or 7 also fired its row-neighbour's CC (3 and 8 respectively). All 16 encoders now behave independently on current firmware.
 - **Ring behaviour depends on remote mode.** If the script is disconnected uncleanly (Live crash), the e16 may stay in remote mode until power-cycled.
-- **Re-test encoders 4 and 7** on current firmware (see above); the bug may be fixed by the updates that made remote mode usable.

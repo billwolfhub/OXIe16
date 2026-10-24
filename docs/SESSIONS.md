@@ -324,8 +324,8 @@ absolute-looking values came from running in plain scene mode.
   listeners re-attached (scheduled one tick later) when visible tracks change.
 - `handle_sysex` overridden to swallow the device's remote-mode ack.
 
-**Confirmed working by user on hardware.** Not yet re-checked on current firmware:
-encoder 4/7 crosstalk; whether remote mode makes scene CC/note numbering irrelevant.
+**Confirmed working by user on hardware.** Encoder 4/7 crosstalk: **confirmed fixed** (user reports all 16 encoders work).
+Still unchecked: whether remote mode makes scene CC/note numbering irrelevant.
 The Lua `leds.update` route is no longer needed for this feature.
 
 **Housekeeping:** `Ableton Tst.oxie16` still has the Lua LED repro on encoder 1 (harmless
