@@ -344,3 +344,19 @@ for the new script only if its turn CC/push notes are otherwise correct); DUBLET
 - **Push+twist:** framework strip bindings removed; `E16.py` now connects each encoder
   to volume, or to Send A while its push is held (ring blue), via `encoder.connect_to`.
   A tap mutes on *release* unless the send moved during the hold. Confirmed working by user.
+
+## 2026-10-24 (wrap-up) — No scene needed; remote-mode lock-in noted
+
+Tested scene independence: user loaded `DUBLETON` (whose pushes are *not* notes 0-15) on
+the e16, then started Live — the script took over and worked fully. **Remote mode sends
+fixed CC 1-16 (relative) and notes 0-15 regardless of the loaded scene**, so the README's
+scene-configuration section is removed; the only thing to install is `e16_ableton/` in
+Live's Remote Scripts folder. (`Ableton Tst`'s encoder 1 was a Lua script and still worked,
+consistent with this.)
+
+**Open usability problem:** while connected the e16 is locked in remote mode, so you
+can't switch to another e16 scene in the middle of a Live session. Workaround: set the
+Control Surface slot to None (script sends EXIT REMOTE MODE), reselect to return. Ideas:
+(A) Shift-button (note 16) toggle — need to probe whether remote mode still sends it;
+(B) enter remote mode only when a dedicated scene sends a PC/bank on scene entry. Not
+started; need `midi_probe.py` output for Shift while the script is running.

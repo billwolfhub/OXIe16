@@ -17,41 +17,12 @@ This is a hand-written port of an equivalent [Remotify](https://remotify.io/)-ge
 
 - Ableton Live 12 (built and tested against 12.4.3)
 - An OXI e16, connected via USB
-- The [OXI desktop app](https://oxiinstruments.com/), to configure the e16's on-device scene
 
-## 1. Configure the e16's scene
+## 1. The e16 needs no setup
 
-The e16 stores its encoder/button MIDI behavior in an on-device **scene**, configured via the OXI desktop app. This script expects the following. (While the script is connected, remote mode makes the turns arrive as relative deltas whatever the scene's mode says; the CC and note *numbers* still come from the scene.)
+The script switches the e16 into its SysEx *remote mode* when Live loads it, and the e16 then sends fixed MIDI regardless of which scene is loaded: turns as relative CC 1-16, pushes as notes 0-15, both on channel 1. Nothing is written to the device, and no scene or Lua script has to be installed on it. (Tested with an unrelated scene, `DUBLETON`, loaded on the e16 before starting Live.)
 
-**Encoders 1–16 (Turn):**
-| Field | Value |
-|---|---|
-| Type | CC (Control Change) |
-| Mode | CC Abs is fine (remote mode overrides it with relative deltas) |
-| Channel | 1 |
-| CC number | 1 for encoder 1, 2 for encoder 2, … 16 for encoder 16 |
-
-**Encoder pushes 1–16 (Push):**
-| Field | Value |
-|---|---|
-| Type | Note |
-| Channel | 1 |
-| Note number | 0 for encoder 1's push, 1 for encoder 2's, … 15 for encoder 16's |
-| Velocity | **127** (the app may default this to 0, which is a no-op — a Note On with velocity 0 doesn't register) |
-| Output | An explicit **USB** output, not `ALL` — with `ALL`, messages can get routed to the physical TRS ports instead of over USB, silently never reaching your computer |
-| Channel | A **fixed** value (`1`), not the dynamic `Page`-linked default |
-| Accel Mode | Momentary / press-only (Note On on press, Note Off on release — not toggle) |
-
-Many e16 scenes already default the Turn side to CC 1–16 absolute — check before rebuilding it. The Push side commonly needs all four of the above fixed manually; none of them are the app's defaults.
-
-Once configured:
-1. Name the scene (e.g. "Ableton Tst") and **Save**.
-2. Click **Set**, then drag the scene onto a slot in the **On Device** list — Save alone only writes to your computer, not the hardware.
-3. Reboot the e16 to clear its cache.
-
-You can verify the scene is sending what's expected with `scripts/midi_probe.py` (see below) before moving on.
-
-## 2. Install the script
+## 2. Install the script (the only thing to install)
 
 Symlink this repo's `e16_ableton/` folder into Ableton's Remote Scripts directory:
 
@@ -75,7 +46,7 @@ If something goes wrong, check Live's `Log.txt` (`~/Library/Preferences/Ableton/
 
 ## Diagnostic tool
 
-`scripts/midi_probe.py` prints raw MIDI messages from a connected device — useful for confirming the e16's scene is actually sending what you configured, independent of Ableton.
+`scripts/midi_probe.py` prints raw MIDI messages from a connected device — useful for checking what the e16 is actually sending, independent of Ableton.
 
 ```bash
 pip3 install mido python-rtmidi
@@ -87,4 +58,5 @@ Pick the e16's port from the printed list, then turn/press its controls and watc
 ## Known issues
 
 - **Fixed in current firmware:** older e16 firmware had a bug where turning encoder 4 or 7 also fired its row-neighbour's CC (3 and 8 respectively). All 16 encoders now behave independently on current firmware.
-- **Ring behaviour depends on remote mode.** If the script is disconnected uncleanly (Live crash), the e16 may stay in remote mode until power-cycled.
+- **The e16 is locked in remote mode while the script is connected**, so you can't switch to another e16 scene or setup until you set the Control Surface slot to **None** (which makes it leave remote mode) and reselect `e16_ableton` when you want it back. A Shift-button toggle or a scene-entry trigger is being considered.
+- If Live crashes and the script is disconnected uncleanly, the e16 may stay in remote mode until power-cycled.
