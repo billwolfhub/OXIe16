@@ -1,3 +1,5 @@
+import re
+
 import Live
 from _Framework.ControlSurface import OptimizedControlSurface
 from _Framework.MixerComponent import MixerComponent
@@ -15,6 +17,10 @@ SYSEX_HEADER = (0xF0, 0x00, 0x21, 0x5B, 0x02, 0x01)
 ENTER_REMOTE_MODE = SYSEX_HEADER + (0x06, 0x55, 0xF7)
 EXIT_REMOTE_MODE = SYSEX_HEADER + (0x06, 0x00, 0xF7)
 LED_RING_CMD = SYSEX_HEADER + (0x06, 0x04)
+OLED_LABELS_CMD = SYSEX_HEADER + (0x06, 0x03)
+
+OLED_TITLE = "MIXER"  # max 16 chars
+LABEL_LENGTH = 4  # chars per encoder label
 
 RING_ACTIVE = (0, 127, 0)  # green
 RING_MUTED = (127, 0, 0)  # red
@@ -47,15 +53,37 @@ def make_ring_sysex(rings):
     return LED_RING_CMD + pack_7bit(raw) + (0xF7,)
 
 
+_NUMBER_PREFIX = re.compile(r"^\s*#?\d+\s*[-_.:)]\s*")
+
+
+def abbreviate(name):
+    """Track name -> label: drop a leading '1-' / '#12-' style prefix, then any
+    leading spaces/punctuation, so '10-Kontakt 8' becomes 'Kontakt 8'."""
+    return _NUMBER_PREFIX.sub("", name or "").lstrip(" #-_.:()[]")
+
+
+def make_labels_sysex(title, labels):
+    """title: up to 16 chars; labels: 16 strings, each cut/padded to 4 chars."""
+
+    def pad(text, length):
+        text = "".join(c if 32 <= ord(c) < 127 else "?" for c in (text or ""))
+        return [ord(c) for c in text[:length].ljust(length)]
+
+    raw = pad(title, 16)
+    for label in (list(labels) + [""] * 16)[:16]:
+        raw += pad(label, LABEL_LENGTH)
+    return OLED_LABELS_CMD + pack_7bit(raw) + (0xF7,)
+
+
 class ChangeListener(object):
     """Named callable so Live's C++ binding can identify it for removal."""
 
-    def __init__(self, surface, index):
-        self._surface = surface
-        self._index = index
+    def __init__(self, callback, *args):
+        self._callback = callback
+        self._args = args
 
     def __call__(self):
-        self._surface._draw_ring(self._index)
+        self._callback(*self._args)
 
 
 class E16(OptimizedControlSurface):
@@ -105,13 +133,18 @@ class E16(OptimizedControlSurface):
         self.schedule_message(1, self._refresh_all)
 
     def _detach_listeners(self):
-        for track, volume, volume_listener, mute_listener in self._listeners.values():
-            try:
-                volume.remove_value_listener(volume_listener)
-                track.remove_mute_listener(mute_listener)
-            except Exception:
-                pass
+        for entry in self._listeners.values():
+            for target, remove_name, listener in entry["regs"]:
+                try:
+                    getattr(target, remove_name)(listener)
+                except Exception:
+                    pass
         self._listeners = {}
+
+    @staticmethod
+    def _listen(regs, target, kind, listener):
+        getattr(target, "add_%s_listener" % kind)(listener)
+        regs.append((target, "remove_%s_listener" % kind, listener))
 
     def _refresh_all(self):
         self._detach_listeners()
@@ -120,22 +153,24 @@ class E16(OptimizedControlSurface):
             if track is None:
                 continue
             volume = track.mixer_device.volume
-            volume_listener = ChangeListener(self, index)
-            mute_listener = ChangeListener(self, index)
-            volume.add_value_listener(volume_listener)
-            track.add_mute_listener(mute_listener)
-            self._listeners[index] = (track, volume, volume_listener, mute_listener)
+            regs = []
+            self._listen(regs, volume, "value", ChangeListener(self._draw_ring, index))
+            self._listen(regs, track, "mute", ChangeListener(self._draw_ring, index))
+            self._listen(regs, track, "name", ChangeListener(self._draw_labels))
+            self._listeners[index] = {"track": track, "volume": volume, "regs": regs}
         self._draw_all()
+        self._draw_labels()
 
     def _ring_state(self, index):
         entry = self._listeners.get(index)
         if entry is None:
             return (index, RING_OFF, 0)
-        track, volume, _, _ = entry
+        track, volume = entry["track"], entry["volume"]
         span = volume.max - volume.min
         fraction = (volume.value - volume.min) / span if span else 0.0
         amount = max(0, min(16383, int(fraction * 16383)))
-        return (index, RING_MUTED if track.mute else RING_ACTIVE, amount)
+        color = RING_MUTED if track.mute else RING_ACTIVE
+        return (index, color, amount)
 
     def _draw_ring(self, index):
         self._send_midi(make_ring_sysex([self._ring_state(index)]))
@@ -143,6 +178,13 @@ class E16(OptimizedControlSurface):
     def _draw_all(self):
         for index in range(NUM_TRACKS):
             self._draw_ring(index)
+
+    def _draw_labels(self):
+        names = []
+        for index in range(NUM_TRACKS):
+            entry = self._listeners.get(index)
+            names.append(abbreviate(entry["track"].name) if entry else "")
+        self._send_midi(make_labels_sysex(OLED_TITLE, names))
 
     def disconnect(self):
         self._detach_listeners()
