@@ -302,3 +302,32 @@ the one thing needed for the red-mute feature. Worth revisiting once OXI ships w
 update they're working on. This, plus the encoder 4/7 crosstalk bug, plus the
 SysEx-ring-amount side effect found earlier, would make a good consolidated bug report
 to send OXI whenever that happens.
+
+## 2026-10-24 — Red/green ring feedback working (remote mode, firmware update)
+
+OXI shipped e16 updates that fixed the blockers. Re-tested with a standalone script,
+`scripts/sysex_ring_test.py` (no Ableton, no restarts): ENTER REMOTE MODE, then ring
+SysEx for red/green at full and half fill — **rings light correctly**.
+
+**Key finding — the old "volume jumps" bug was not what we thought.** In remote mode the
+encoders report **relative** deltas (CW 1-8, CCW 127-120), exactly as `OXI REMOTE.xlsx`
+documents. Treating them as absolute looked like jumping between min and max. The earlier
+absolute-looking values came from running in plain scene mode.
+
+**New `E16.py` design** (replaces the plain-CC/Note v1):
+- Sends ENTER REMOTE MODE after init; initial ring draw scheduled ~500 ms later (the
+  device needs a moment before accepting LED messages). EXIT on disconnect.
+- Encoders: CC 1-16, `relative_smooth_two_compliment`, bound to each strip's volume.
+- Mute buttons unchanged: ButtonElement, notes 0-15, ch 1.
+- Rings: SysEx `0x06 0x04` with fill = track volume (14-bit, from min/max), colour green
+  (active) / red (muted). Redrawn on any volume or mute change via per-track listeners;
+  listeners re-attached (scheduled one tick later) when visible tracks change.
+- `handle_sysex` overridden to swallow the device's remote-mode ack.
+
+**Confirmed working by user on hardware.** Not yet re-checked on current firmware:
+encoder 4/7 crosstalk; whether remote mode makes scene CC/note numbering irrelevant.
+The Lua `leds.update` route is no longer needed for this feature.
+
+**Housekeeping:** `Ableton Tst.oxie16` still has the Lua LED repro on encoder 1 (harmless
+for the new script only if its turn CC/push notes are otherwise correct); DUBLETON.oxie16
+(`~/Documents/OXI/Scenes/`) is a separate multi-page mixer scene with no Lua.

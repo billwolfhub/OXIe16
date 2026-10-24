@@ -1,8 +1,8 @@
 # OXIe16
 
-An Ableton Live 12 Remote Script for the [OXI e16](https://oxiinstruments.com/) MIDI controller: 16 encoders map to Track Volume, and their push buttons toggle Track Mute, for the first 16 tracks in the current Live set. Feedback works both ways — moving a fader or muting a track in Live updates the hardware.
+An Ableton Live 12 Remote Script for the [OXI e16](https://oxiinstruments.com/) MIDI controller: 16 encoders map to Track Volume, and their push buttons toggle Track Mute, for the first 16 tracks in the current Live set. Each encoder's LED ring shows the track's real volume and is **green when the track is active, red when muted**. It updates whenever volume or mute changes, from the hardware, the mouse, or automation.
 
-This is a hand-written port of an equivalent [Remotify](https://remotify.io/)-generated script for a Midi Fighter Twister, rebuilt against the e16's own plain MIDI CC/Note behavior rather than any generator tool.
+This is a hand-written port of an equivalent [Remotify](https://remotify.io/)-generated script for a Midi Fighter Twister, rebuilt for the e16 rather than with any generator tool. The script puts the e16 into its SysEx *remote mode* while connected: encoders then report relative deltas and the script draws the rings itself (see `Misc from OXI/OXI REMOTE.xlsx`). This needs a recent e16 firmware; with the older firmware, ring colour was not usable.
 
 ## What's in this repo
 
@@ -21,13 +21,13 @@ This is a hand-written port of an equivalent [Remotify](https://remotify.io/)-ge
 
 ## 1. Configure the e16's scene
 
-The e16 stores its encoder/button MIDI behavior in an on-device **scene**, configured via the OXI desktop app. This script expects:
+The e16 stores its encoder/button MIDI behavior in an on-device **scene**, configured via the OXI desktop app. This script expects the following. (While the script is connected, remote mode makes the turns arrive as relative deltas whatever the scene's mode says; the CC and note *numbers* still come from the scene.)
 
 **Encoders 1–16 (Turn):**
 | Field | Value |
 |---|---|
 | Type | CC (Control Change) |
-| Mode | Absolute (`CC Abs`) |
+| Mode | CC Abs is fine (remote mode overrides it with relative deltas) |
 | Channel | 1 |
 | CC number | 1 for encoder 1, 2 for encoder 2, … 16 for encoder 16 |
 
@@ -86,5 +86,6 @@ Pick the e16's port from the printed list, then turn/press its controls and watc
 
 ## Known issues
 
-- **Encoders 4 and 7 have a firmware bug**: turning either one also spuriously fires its row-neighbor's CC (encoder 4 → also fires encoder 3's CC; encoder 7 → also fires encoder 8's). Confirmed via extensive isolated testing to be tied to encoder position, not the assigned CC number, and confirmed not fixable from the Ableton side — a real turn of the neighboring encoder and the phantom echo are indistinguishable at the MIDI protocol level. Every other encoder (including the equivalent positions in rows 3–4) is clean. Worth reporting to OXI support.
-- **No LED color feedback for mute.** The e16's plain Note messages carry no color information — real RGB LED control (e.g. lighting a button red when muted) requires the e16's separate SysEx "remote mode" protocol (documented in `Misc from OXI/OXI REMOTE.xlsx`), which this script doesn't implement. Volume still gets ring-position feedback for free, since the e16 updates its own LED ring when it receives a CC message on the corresponding number.
+- **Encoders 4 and 7 had a firmware bug** (seen on the older firmware, not yet re-tested on the current one): turning either one also spuriously fires its row-neighbor's CC (encoder 4 → also fires encoder 3's CC; encoder 7 → also fires encoder 8's). Confirmed via extensive isolated testing to be tied to encoder position, not the assigned CC number, and confirmed not fixable from the Ableton side — a real turn of the neighboring encoder and the phantom echo are indistinguishable at the MIDI protocol level. Every other encoder (including the equivalent positions in rows 3–4) is clean. Worth reporting to OXI support.
+- **Ring behaviour depends on remote mode.** If the script is disconnected uncleanly (Live crash), the e16 may stay in remote mode until power-cycled.
+- **Re-test encoders 4 and 7** on current firmware (see above); the bug may be fixed by the updates that made remote mode usable.
