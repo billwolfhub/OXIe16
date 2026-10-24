@@ -331,3 +331,16 @@ The Lua `leds.update` route is no longer needed for this feature.
 **Housekeeping:** `Ableton Tst.oxie16` still has the Lua LED repro on encoder 1 (harmless
 for the new script only if its turn CC/push notes are otherwise correct); DUBLETON.oxie16
 (`~/Documents/OXI/Scenes/`) is a separate multi-page mixer scene with no Lua.
+
+## 2026-10-24 (later) — Labels, reload, push+twist = Send A
+
+- **OLED labels:** first 4 chars of each track name, leading `1-` / `#12-` number prefix
+  stripped (user's tracks are named `1-Surge XT` etc.), title "MIXER". Updates on rename.
+  Ring colours stay red/green (track-header colours were tried and rejected).
+- **Reload without restarting Live:** `__init__.py` calls `importlib.reload` on `E16.py` in
+  `create_instance`, so Settings -> Control Surface -> None -> `e16_ableton` picks up edits.
+  Confirmed working (a `build 4` log line appeared after a plain toggle). `__init__.py`
+  itself still needs a Live restart if changed.
+- **Push+twist:** framework strip bindings removed; `E16.py` now connects each encoder
+  to volume, or to Send A while its push is held (ring blue), via `encoder.connect_to`.
+  A tap mutes on *release* unless the send moved during the hold. Confirmed working by user.

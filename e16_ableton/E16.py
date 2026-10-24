@@ -24,6 +24,7 @@ LABEL_LENGTH = 4  # chars per encoder label
 
 RING_ACTIVE = (0, 127, 0)  # green
 RING_MUTED = (127, 0, 0)  # red
+RING_SEND = (0, 0, 127)  # blue: shown while a push is held (encoder controls Send A)
 RING_OFF = (0, 0, 0)
 
 # Remote mode needs a moment after ENTER before it accepts LED messages.
@@ -86,38 +87,51 @@ class ChangeListener(object):
         self._callback(*self._args)
 
 
+class PushListener(object):
+    """Named callable for a ButtonElement's value listener (value 127 = press, 0 = release)."""
+
+    def __init__(self, surface, index):
+        self._surface = surface
+        self._index = index
+
+    def __call__(self, value):
+        self._surface._on_push(self._index, value)
+
+
 class E16(OptimizedControlSurface):
     def __init__(self, c_instance):
         super(E16, self).__init__(c_instance)
         self._listeners = {}
+        self._held = [False] * NUM_TRACKS  # push currently down
+        self._twisted = [False] * NUM_TRACKS  # send moved while the push was down
+        self._push_listeners = []
         with self.component_guard():
             self._mixer = MixerComponent(NUM_TRACKS, 0)
             self._encoders = []
-            self._mute_buttons = []
+            self._buttons = []
             for track_index in range(NUM_TRACKS):
-                strip = self._mixer.channel_strip(track_index)
-
                 cc_number = track_index + 1  # CC 1-16
-                encoder = EncoderElement(
-                    MIDI_CC_TYPE,
-                    MIDI_CHANNEL,
-                    cc_number,
-                    Live.MidiMap.MapMode.relative_smooth_two_compliment,
-                    name=f"Volume_Encoder_{track_index + 1}",
+                self._encoders.append(
+                    EncoderElement(
+                        MIDI_CC_TYPE,
+                        MIDI_CHANNEL,
+                        cc_number,
+                        Live.MidiMap.MapMode.relative_smooth_two_compliment,
+                        name=f"Encoder_{track_index + 1}",
+                    )
                 )
-                strip.set_volume_control(encoder)
-                self._encoders.append(encoder)
-
                 note_number = track_index  # notes 0-15
-                mute_button = ButtonElement(
+                button = ButtonElement(
                     True,
                     MIDI_NOTE_TYPE,
                     MIDI_CHANNEL,
                     note_number,
-                    name=f"Mute_Button_{track_index + 1}",
+                    name=f"Push_{track_index + 1}",
                 )
-                strip.set_mute_button(mute_button)
-                self._mute_buttons.append(mute_button)
+                listener = PushListener(self, track_index)
+                button.add_value_listener(listener)
+                self._buttons.append(button)
+                self._push_listeners.append(listener)
 
         self.song().add_visible_tracks_listener(self._on_tracks_changed)
         self._send_midi(ENTER_REMOTE_MODE)
@@ -147,29 +161,77 @@ class E16(OptimizedControlSurface):
         regs.append((target, "remove_%s_listener" % kind, listener))
 
     def _refresh_all(self):
-        self._detach_listeners()
-        for index in range(NUM_TRACKS):
-            track = self._mixer.channel_strip(index).track
-            if track is None:
-                continue
-            volume = track.mixer_device.volume
-            regs = []
-            self._listen(regs, volume, "value", ChangeListener(self._draw_ring, index))
-            self._listen(regs, track, "mute", ChangeListener(self._draw_ring, index))
-            self._listen(regs, track, "name", ChangeListener(self._draw_labels))
-            self._listeners[index] = {"track": track, "volume": volume, "regs": regs}
-        self._draw_all()
-        self._draw_labels()
+        with self.component_guard():
+            self._detach_listeners()
+            for index in range(NUM_TRACKS):
+                self._held[index] = False
+                self._twisted[index] = False
+                track = self._mixer.channel_strip(index).track
+                if track is None:
+                    self._encoders[index].release_parameter()
+                    continue
+                volume = track.mixer_device.volume
+                sends = track.mixer_device.sends
+                send = sends[0] if len(sends) else None  # FX send 1 (Send A)
+                regs = []
+                self._listen(regs, volume, "value", ChangeListener(self._draw_ring, index))
+                self._listen(regs, track, "mute", ChangeListener(self._draw_ring, index))
+                self._listen(regs, track, "name", ChangeListener(self._draw_labels))
+                if send is not None:
+                    self._listen(regs, send, "value", ChangeListener(self._on_send_changed, index))
+                self._listeners[index] = {
+                    "track": track,
+                    "volume": volume,
+                    "send": send,
+                    "regs": regs,
+                }
+                self._connect_encoder(index)
+            self._draw_all()
+            self._draw_labels()
+
+    def _connect_encoder(self, index):
+        """Encoder drives Send A while its push is held (if the track has one),
+        otherwise volume. Uses Live's native relative mapping either way."""
+        entry = self._listeners.get(index)
+        if entry is None:
+            self._encoders[index].release_parameter()
+            return
+        use_send = self._held[index] and entry["send"] is not None
+        self._encoders[index].connect_to(entry["send"] if use_send else entry["volume"])
+
+    def _on_send_changed(self, index):
+        if self._held[index]:
+            self._twisted[index] = True
+        self._draw_ring(index)
+
+    def _on_push(self, index, value):
+        with self.component_guard():
+            entry = self._listeners.get(index)
+            if value:
+                self._held[index] = True
+                self._twisted[index] = False
+            else:
+                twisted = self._twisted[index]
+                self._held[index] = False
+                self._twisted[index] = False
+                # A tap mutes; a twist (send moved while held) does not.
+                if entry is not None and not twisted:
+                    entry["track"].mute = not entry["track"].mute
+            self._connect_encoder(index)
+            self._draw_ring(index)
 
     def _ring_state(self, index):
         entry = self._listeners.get(index)
         if entry is None:
             return (index, RING_OFF, 0)
-        track, volume = entry["track"], entry["volume"]
-        span = volume.max - volume.min
-        fraction = (volume.value - volume.min) / span if span else 0.0
+        track = entry["track"]
+        if self._held[index] and entry["send"] is not None:
+            param, color = entry["send"], RING_SEND
+        else:
+            param, color = entry["volume"], RING_MUTED if track.mute else RING_ACTIVE
+        span = param.max - param.min
+        fraction = (param.value - param.min) / span if span else 0.0
         amount = max(0, min(16383, int(fraction * 16383)))
-        color = RING_MUTED if track.mute else RING_ACTIVE
         return (index, color, amount)
 
     def _draw_ring(self, index):
@@ -188,10 +250,18 @@ class E16(OptimizedControlSurface):
 
     def disconnect(self):
         self._detach_listeners()
+        for button, listener in zip(self._buttons, self._push_listeners):
+            try:
+                button.remove_value_listener(listener)
+            except Exception:
+                pass
+        for encoder in self._encoders:
+            encoder.release_parameter()
         if self.song().visible_tracks_has_listener(self._on_tracks_changed):
             self.song().remove_visible_tracks_listener(self._on_tracks_changed)
         self._send_midi(make_ring_sysex([(i, RING_OFF, 0) for i in range(NUM_TRACKS)]))
         self._send_midi(EXIT_REMOTE_MODE)
         self._encoders = []
-        self._mute_buttons = []
+        self._buttons = []
+        self._push_listeners = []
         super(E16, self).disconnect()
