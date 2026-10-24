@@ -7,7 +7,6 @@ This is a hand-written port of an equivalent [Remotify](https://remotify.io/)-ge
 ## What's in this repo
 
 - `e16_ableton/` — the actual Ableton Remote Script (`__init__.py` + `E16.py`)
-- `scripts/midi_probe.py` — a standalone diagnostic tool for inspecting raw MIDI from the e16
 - `docs/superpowers/specs/` and `docs/superpowers/plans/` — the design doc and implementation plan
 - `docs/SESSIONS.md` — a running log of the whole build, including a fairly deep debugging saga (worth reading if you hit a similar `_Framework` error)
 - `MFT script from remotify/` — the original Midi Fighter Twister script this was ported from
@@ -43,17 +42,6 @@ Then in Ableton Live:
 If something goes wrong, check Live's `Log.txt` (`~/Library/Preferences/Ableton/Live <version>/Log.txt`) for a Python traceback — search for `E16` or `e16_ableton`.
 
 **When iterating on `E16.py`**: a full quit-and-reopen of Live is needed to reliably pick up code changes. Deselecting and reselecting `e16_ableton` in the Control Surface dropdown can *look* like a reload (fresh "Initializing..." log lines, no errors) while actually still running the previous version — confirmed the hard way across several rounds of live debugging. If a fix doesn't seem to take effect, restart Live fully before assuming the fix is wrong.
-
-## Diagnostic tool
-
-`scripts/midi_probe.py` prints raw MIDI messages from a connected device — useful for checking what the e16 is actually sending, independent of Ableton.
-
-```bash
-pip3 install mido python-rtmidi
-python3 scripts/midi_probe.py
-```
-
-Pick the e16's port from the printed list, then turn/press its controls and watch the output.
 
 ## Known issues
 
