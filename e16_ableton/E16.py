@@ -1,3 +1,22 @@
+"""OXI e16 control surface for Ableton Live 12.
+
+What it does, for the first 16 tracks in the Live set (encoder N = track N):
+  - turn an encoder          -> that track's volume
+  - hold its push and turn   -> that track's Send A ("FX send 1")
+  - tap its push             -> toggle mute (on release, so a twist doesn't mute)
+  - LED ring                 -> shows the level being controlled: green = active,
+                                red = muted, blue = Send A while the push is held
+  - OLED                     -> the first 4 characters of each track's name
+
+How it talks to the e16: while connected, the script puts the device into SysEx
+"remote mode". In that mode the e16 ignores whatever scene is loaded and sends
+fixed MIDI (turns = relative CC 1-16, pushes = notes 0-15, channel 1), and the
+host (this script) is responsible for drawing the rings and the OLED. Nothing is
+stored on the device. The protocol notes are in docs/SESSIONS.md.
+
+Live loads this through __init__.py, which reloads this module each time, so
+setting the Control Surface slot to None and back picks up edits.
+"""
 import re
 
 import Live
@@ -7,31 +26,38 @@ from _Framework.EncoderElement import EncoderElement
 from _Framework.ButtonElement import ButtonElement
 from _Framework.InputControlElement import MIDI_CC_TYPE, MIDI_NOTE_TYPE
 
-NUM_TRACKS = 16
+NUM_TRACKS = 16  # the e16 has 16 encoders; they follow the first 16 visible tracks
 MIDI_CHANNEL = 0  # e16 channel 1, 0-indexed
 
-# Remote-mode SysEx protocol (OXI's OXI REMOTE.xlsx, verified against
-# firmware 2026-10 with scripts/sysex_ring_test.py). In remote mode encoders
-# report RELATIVE deltas (CW 1-8, CCW 127-120) and the host draws the rings.
+# Remote-mode SysEx messages (OXI's OXI REMOTE.xlsx, verified on real hardware
+# with firmware from 2026-10). Every message is F0 00 21 5B 02 01 <cmd> ... F7.
 SYSEX_HEADER = (0xF0, 0x00, 0x21, 0x5B, 0x02, 0x01)
 ENTER_REMOTE_MODE = SYSEX_HEADER + (0x06, 0x55, 0xF7)
 EXIT_REMOTE_MODE = SYSEX_HEADER + (0x06, 0x00, 0xF7)
-LED_RING_CMD = SYSEX_HEADER + (0x06, 0x04)
-OLED_LABELS_CMD = SYSEX_HEADER + (0x06, 0x03)
+LED_RING_CMD = SYSEX_HEADER + (0x06, 0x04)  # payload + F7 appended by the builder
+OLED_LABELS_CMD = SYSEX_HEADER + (0x06, 0x03)  # payload + F7 appended by the builder
 
-OLED_TITLE = "MIXER"  # max 16 chars
-LABEL_LENGTH = 4  # chars per encoder label
+OLED_TITLE = "MIXER"  # shown above the labels; max 16 chars
+LABEL_LENGTH = 4  # the OLED shows 4 characters per encoder
 
-RING_ACTIVE = (0, 127, 0)  # green
-RING_MUTED = (127, 0, 0)  # red
+# Ring colours are RGB, each 0-127 (SysEx data bytes are 7-bit).
+RING_ACTIVE = (0, 127, 0)  # green: track is audible
+RING_MUTED = (127, 0, 0)  # red: track is muted
 RING_SEND = (0, 0, 127)  # blue: shown while a push is held (encoder controls Send A)
-RING_OFF = (0, 0, 0)
+RING_OFF = (0, 0, 0)  # no track on this encoder
 
-# Remote mode needs a moment after ENTER before it accepts LED messages.
+# Give the device a moment after ENTER before sending LED/OLED messages; an
+# immediate draw may be dropped. (A short delay is what worked on hardware.)
 STARTUP_DRAW_DELAY_TICKS = 5  # 1 tick = 100 ms
 
 
 def pack_7bit(data):
+    """Pack raw bytes into MIDI-safe 7-bit form, the way the e16 expects.
+
+    SysEx data bytes can't have the top bit set, so every group of up to 7 bytes
+    is sent as one "prefix" byte holding those bytes' top bits (bit i = byte i)
+    followed by the 7 bytes with their top bit cleared.
+    """
     result = []
     data = list(data)
     while data:
@@ -47,13 +73,22 @@ def pack_7bit(data):
 
 
 def make_ring_sysex(rings):
-    """rings: iterable of (encoder_index 0-15, (r, g, b), amount_14bit)."""
+    """Build one LED-ring message.
+
+    rings: iterable of (encoder_index 0-15, (r, g, b), amount_14bit).
+    amount is how much of the ring is lit, 0-16383. The trailing 0 in each
+    7-byte record is the "bipolar" flag (0 = fill from the left, not centred).
+    Each record is exactly 7 bytes, so it packs into one 8-byte group.
+    """
     raw = []
     for index, (r, g, b), amount in rings:
         raw.extend((index, r, g, b, (amount >> 7) & 0x7F, amount & 0x7F, 0))
     return LED_RING_CMD + pack_7bit(raw) + (0xF7,)
 
 
+# Matches the track-number prefix the user puts on track names, e.g. "1-",
+# "12-" or "#3 -". Requires a separator after the digits so a real name that
+# starts with a number ("808 Kick") is left alone.
 _NUMBER_PREFIX = re.compile(r"^\s*#?\d+\s*[-_.:)]\s*")
 
 
@@ -64,9 +99,14 @@ def abbreviate(name):
 
 
 def make_labels_sysex(title, labels):
-    """title: up to 16 chars; labels: 16 strings, each cut/padded to 4 chars."""
+    """Build the OLED labels message.
+
+    title: up to 16 chars; labels: 16 strings, each cut/padded to 4 chars.
+    The payload is a fixed 80 bytes (16 + 16 * 4), so missing labels are blank.
+    """
 
     def pad(text, length):
+        # The display only does printable ASCII; anything else becomes '?'.
         text = "".join(c if 32 <= ord(c) < 127 else "?" for c in (text or ""))
         return [ord(c) for c in text[:length].ljust(length)]
 
@@ -77,7 +117,12 @@ def make_labels_sysex(title, labels):
 
 
 class ChangeListener(object):
-    """Named callable so Live's C++ binding can identify it for removal."""
+    """Named callable so Live's C++ binding can identify it for removal.
+
+    Removing a listener needs the same object that was added, so we keep these
+    instances (see E16._listeners) instead of passing throwaway lambdas;
+    _detach_listeners then removes exactly the ones we registered.
+    """
 
     def __init__(self, callback, *args):
         self._callback = callback
@@ -99,13 +144,24 @@ class PushListener(object):
 
 
 class E16(OptimizedControlSurface):
+    # OptimizedControlSurface, not plain ControlSurface: on Live 12.4 the plain
+    # class fails inside MixerComponent's constructor with a TypeError.
+
     def __init__(self, c_instance):
         super(E16, self).__init__(c_instance)
+        # index -> {"track", "volume", "send", "regs"} for each encoder that
+        # currently has a track; "regs" lets us remove that track's listeners.
         self._listeners = {}
         self._held = [False] * NUM_TRACKS  # push currently down
         self._twisted = [False] * NUM_TRACKS  # send moved while the push was down
         self._push_listeners = []
+        # Elements and components must be created inside component_guard() so
+        # the framework registers them and rebuilds Live's MIDI map afterwards.
         with self.component_guard():
+            # MixerComponent is used only to track which Live track sits on
+            # each channel strip (it follows adds/removes/reorders for us). We
+            # don't bind its controls: volume, send and mute are handled below
+            # so the push+twist and tap-on-release behaviour can work.
             self._mixer = MixerComponent(NUM_TRACKS, 0)
             self._encoders = []
             self._buttons = []
@@ -116,6 +172,8 @@ class E16(OptimizedControlSurface):
                         MIDI_CC_TYPE,
                         MIDI_CHANNEL,
                         cc_number,
+                        # Remote mode sends relative deltas as two's complement
+                        # (1-8 clockwise, 127-120 counter-clockwise).
                         Live.MidiMap.MapMode.relative_smooth_two_compliment,
                         name=f"Encoder_{track_index + 1}",
                     )
@@ -135,10 +193,12 @@ class E16(OptimizedControlSurface):
 
         self.song().add_visible_tracks_listener(self._on_tracks_changed)
         self._send_midi(ENTER_REMOTE_MODE)
+        # Wait for the device to settle before the first draw (see constant).
         self.schedule_message(STARTUP_DRAW_DELAY_TICKS, self._refresh_all)
 
     def handle_sysex(self, midi_bytes):
         # The e16 acks ENTER REMOTE MODE with a SysEx; nothing to do with it.
+        # (Overriding this also stops the framework logging it as "unknown".)
         pass
 
     def _on_tracks_changed(self):
@@ -147,20 +207,32 @@ class E16(OptimizedControlSurface):
         self.schedule_message(1, self._refresh_all)
 
     def _detach_listeners(self):
+        """Remove every listener we added to Live's tracks and parameters."""
         for entry in self._listeners.values():
             for target, remove_name, listener in entry["regs"]:
                 try:
                     getattr(target, remove_name)(listener)
                 except Exception:
+                    # The track may already have been deleted from the set.
                     pass
         self._listeners = {}
 
     @staticmethod
     def _listen(regs, target, kind, listener):
+        """Add a "<kind>" listener and remember how to remove it later.
+
+        Live names these methods add_<kind>_listener / remove_<kind>_listener,
+        e.g. kind="mute" -> track.add_mute_listener(...).
+        """
         getattr(target, "add_%s_listener" % kind)(listener)
         regs.append((target, "remove_%s_listener" % kind, listener))
 
     def _refresh_all(self):
+        """(Re)attach everything to whichever tracks are on the 16 strips now.
+
+        Runs at startup and whenever the visible track list changes. Any push
+        held at that moment is forgotten, since its track may have changed.
+        """
         with self.component_guard():
             self._detach_listeners()
             for index in range(NUM_TRACKS):
@@ -168,12 +240,15 @@ class E16(OptimizedControlSurface):
                 self._twisted[index] = False
                 track = self._mixer.channel_strip(index).track
                 if track is None:
+                    # Fewer than 16 tracks: leave this encoder inert and dark.
                     self._encoders[index].release_parameter()
                     continue
                 volume = track.mixer_device.volume
                 sends = track.mixer_device.sends
                 send = sends[0] if len(sends) else None  # FX send 1 (Send A)
                 regs = []
+                # Redraw the ring when the level or mute state changes from
+                # anywhere (hardware, mouse, automation), and the OLED on rename.
                 self._listen(regs, volume, "value", ChangeListener(self._draw_ring, index))
                 self._listen(regs, track, "mute", ChangeListener(self._draw_ring, index))
                 self._listen(regs, track, "name", ChangeListener(self._draw_labels))
@@ -200,6 +275,8 @@ class E16(OptimizedControlSurface):
         self._encoders[index].connect_to(entry["send"] if use_send else entry["volume"])
 
     def _on_send_changed(self, index):
+        # Moving the send while the push is down is a "twist": remember it so
+        # releasing the push doesn't also toggle mute.
         if self._held[index]:
             self._twisted[index] = True
         self._draw_ring(index)
@@ -208,6 +285,7 @@ class E16(OptimizedControlSurface):
         with self.component_guard():
             entry = self._listeners.get(index)
             if value:
+                # Press: from now on the encoder drives Send A.
                 self._held[index] = True
                 self._twisted[index] = False
             else:
@@ -215,20 +293,26 @@ class E16(OptimizedControlSurface):
                 self._held[index] = False
                 self._twisted[index] = False
                 # A tap mutes; a twist (send moved while held) does not.
+                # Muting waits for release so we can tell a tap from a twist.
                 if entry is not None and not twisted:
                     entry["track"].mute = not entry["track"].mute
+            # Point the encoder at send or volume, and redraw in the new colour.
             self._connect_encoder(index)
             self._draw_ring(index)
 
     def _ring_state(self, index):
+        """(encoder, colour, fill) for one ring, from the current Live state."""
         entry = self._listeners.get(index)
         if entry is None:
             return (index, RING_OFF, 0)
         track = entry["track"]
         if self._held[index] and entry["send"] is not None:
+            # Show what the encoder is actually controlling right now.
             param, color = entry["send"], RING_SEND
         else:
             param, color = entry["volume"], RING_MUTED if track.mute else RING_ACTIVE
+        # Fill is the parameter's position within its own range, scaled to the
+        # ring's 14-bit amount (so it follows the fader, not a dB value).
         span = param.max - param.min
         fraction = (param.value - param.min) / span if span else 0.0
         amount = max(0, min(16383, int(fraction * 16383)))
@@ -238,6 +322,8 @@ class E16(OptimizedControlSurface):
         self._send_midi(make_ring_sysex([self._ring_state(index)]))
 
     def _draw_all(self):
+        # One message per ring rather than one big one, to stay well under any
+        # SysEx size limit on the device.
         for index in range(NUM_TRACKS):
             self._draw_ring(index)
 
@@ -249,6 +335,8 @@ class E16(OptimizedControlSurface):
         self._send_midi(make_labels_sysex(OLED_TITLE, names))
 
     def disconnect(self):
+        # Called when the slot is set to None or Live closes. Release the e16
+        # (rings off, leave remote mode) so its own scenes work again.
         self._detach_listeners()
         for button, listener in zip(self._buttons, self._push_listeners):
             try:
