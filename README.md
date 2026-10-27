@@ -43,6 +43,17 @@ If something goes wrong, check Live's `Log.txt` (`~/Library/Preferences/Ableton/
 
 **When iterating on `E16.py`**: `__init__.py` reloads `E16.py` each time Live loads the script, so setting the Control Surface slot to **None** and back to the script picks up your edits without restarting Live. A newly added script folder only shows up in the dropdown after a Live restart, and changes to `__init__.py` itself also need one.
 
+## Behaviour you may notice
+
+- **Adding, deleting or reordering tracks** rebinds the 16 encoders and the OLED labels to the first 16 visible tracks straight away.
+- **If the e16 is off or unplugged** when the script loads, Live's status bar (bottom-left of the window) shows "OXI e16 not responding - is it on and connected by USB?" and a line goes to `Log.txt`. The script keeps retrying every 2 seconds, so switching the e16 on later connects it and draws the rings and labels with no reload; the status bar then shows "OXI e16 connected". Remote Scripts can't open dialogs, so the status bar is the only on-screen message. It only checks at startup: switching the e16 off mid-session isn't detected.
+
+## Changelog
+
+### v1.1.0
+- **[fix]** Deleting a track no longer leaves later knobs, rings and labels one slot off or throws `ArgumentError`; bindings are rebuilt from `song.visible_tracks` (both scripts).
+- **[feature]** Status-bar warning and automatic reconnect when the e16 is off or not answering (both scripts).
+
 ## Known issues
 
 - **Fixed in current firmware:** older e16 firmware had a bug where turning encoder 4 or 7 also fired its row-neighbour's CC (3 and 8 respectively). All 16 encoders now behave independently on current firmware.
