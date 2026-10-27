@@ -33,6 +33,7 @@ MIDI_CHANNEL = 0  # e16 channel 1, 0-indexed
 # with firmware from 2026-10). Every message is F0 00 21 5B 02 01 <cmd> ... F7.
 SYSEX_HEADER = (0xF0, 0x00, 0x21, 0x5B, 0x02, 0x01)
 ENTER_REMOTE_MODE = SYSEX_HEADER + (0x06, 0x55, 0xF7)
+DEVICE_ACK_PREFIX = SYSEX_HEADER + (0x06, 0x53)  # the e16's reply to ENTER REMOTE MODE
 EXIT_REMOTE_MODE = SYSEX_HEADER + (0x06, 0x00, 0xF7)
 LED_RING_CMD = SYSEX_HEADER + (0x06, 0x04)  # payload + F7 appended by the builder
 OLED_LABELS_CMD = SYSEX_HEADER + (0x06, 0x03)  # payload + F7 appended by the builder
@@ -49,6 +50,11 @@ RING_OFF = (0, 0, 0)  # no track on this encoder
 # Give the device a moment after ENTER before sending LED/OLED messages; an
 # immediate draw may be dropped. (A short delay is what worked on hardware.)
 STARTUP_DRAW_DELAY_TICKS = 5  # 1 tick = 100 ms
+
+# If the e16 hasn't acked ENTER REMOTE MODE after this long, warn in Live's
+# status bar, then keep re-sending ENTER at the repeat interval until it answers.
+DEVICE_CHECK_FIRST_TICKS = 20  # 2 s
+DEVICE_CHECK_REPEAT_TICKS = 20
 
 
 def pack_7bit(data):
@@ -198,14 +204,45 @@ class E16(OptimizedControlSurface):
         # trigger in case the first doesn't fire for some edit.
         self.song().add_visible_tracks_listener(self._on_tracks_changed)
         self.song().add_tracks_listener(self._on_tracks_changed)
+        self._device_alive = False  # set when the e16 acks ENTER REMOTE MODE
+        self._device_was_missing = False  # we already warned the user once
         self._send_midi(ENTER_REMOTE_MODE)
+        self.schedule_message(DEVICE_CHECK_FIRST_TICKS, self._check_device)
         # Wait for the device to settle before the first draw (see constant).
         self.schedule_message(STARTUP_DRAW_DELAY_TICKS, self._refresh_all)
 
     def handle_sysex(self, midi_bytes):
-        # The e16 acks ENTER REMOTE MODE with a SysEx; nothing to do with it.
-        # (Overriding this also stops the framework logging it as "unknown".)
-        pass
+        # The e16 acks ENTER REMOTE MODE with a SysEx; that is our proof it is
+        # powered on and connected. (Overriding this also stops the framework
+        # logging it as "unknown".)
+        if tuple(midi_bytes[: len(DEVICE_ACK_PREFIX)]) == DEVICE_ACK_PREFIX:
+            self._on_device_alive()
+
+    def _on_device_alive(self):
+        if self._device_alive:
+            return
+        self._device_alive = True
+        if self._device_was_missing:
+            # It was switched on after Live started: draw everything now.
+            self.show_message("OXI e16 connected")
+            self.log_message("e16: device connected")
+            self.schedule_message(STARTUP_DRAW_DELAY_TICKS, self._refresh_all)
+
+    def _check_device(self):
+        """Until the e16 acks, tell the user and keep knocking.
+
+        Remote Scripts have no dialogs; show_message puts text in Live's status
+        bar (bottom-left), and the log gets a line too. Re-sending ENTER means
+        an e16 switched on later (or replugged) takes over without reloading.
+        """
+        if self._device_alive:
+            return
+        if not self._device_was_missing:
+            self._device_was_missing = True
+            self.show_message("OXI e16 not responding - is it on and connected by USB?")
+            self.log_message("e16: no response from the device; waiting for it")
+        self._send_midi(ENTER_REMOTE_MODE)
+        self.schedule_message(DEVICE_CHECK_REPEAT_TICKS, self._check_device)
 
     def _on_tracks_changed(self):
         self.log_message("e16: track list changed")
