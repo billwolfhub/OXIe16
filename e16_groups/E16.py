@@ -192,10 +192,11 @@ class E16(OptimizedControlSurface):
         # Elements and components must be created inside component_guard() so
         # the framework registers them and rebuilds Live's MIDI map afterwards.
         with self.component_guard():
-            # MixerComponent is used only to track which Live track sits on
-            # each channel strip (it follows adds/removes/reorders/folds for
-            # us). We don't bind its controls: volume, send and mute are handled
-            # below so push+twist and tap-vs-hold can work.
+            # No longer used to find tracks (_refresh_all reads
+            # song.visible_tracks directly); kept so the framework setup that
+            # worked on Live 12.4 stays unchanged. Its controls are not bound:
+            # volume, send and mute are handled below so push+twist and
+            # tap-vs-hold can work.
             self._mixer = MixerComponent(NUM_TRACKS, 0)
             self._encoders = []
             self._buttons = []
@@ -225,7 +226,12 @@ class E16(OptimizedControlSurface):
                 self._buttons.append(button)
                 self._push_listeners.append(listener)
 
+        self._refresh_pending = False  # a refresh is already queued
+        self._in_refresh = False  # inside _refresh_all (don't queue another from its draws)
+        # visible_tracks covers add/delete/reorder/fold; tracks is a second
+        # trigger in case the first doesn't fire for some edit.
         self.song().add_visible_tracks_listener(self._on_tracks_changed)
+        self.song().add_tracks_listener(self._on_tracks_changed)
         self._send_midi(ENTER_REMOTE_MODE)
         # Wait for the device to settle before the first draw (see constant).
         self.schedule_message(STARTUP_DRAW_DELAY_TICKS, self._refresh_all)
@@ -236,9 +242,20 @@ class E16(OptimizedControlSurface):
         pass
 
     def _on_tracks_changed(self):
-        # MixerComponent re-points its strips on the same event; wait a tick so
-        # strip.track is up to date before we re-attach listeners.
-        self.schedule_message(1, self._refresh_all)
+        self.log_message("e16: track list changed")
+        self._schedule_refresh()
+
+    def _schedule_refresh(self):
+        """Queue one _refresh_all a tick from now (several events can arrive
+        for a single edit; they collapse into one refresh)."""
+        if self._refresh_pending or self._in_refresh:
+            return
+        self._refresh_pending = True
+        self.schedule_message(1, self._run_scheduled_refresh)
+
+    def _run_scheduled_refresh(self):
+        self._refresh_pending = False
+        self._refresh_all()
 
     def _detach_listeners(self):
         """Remove every listener we added to Live's tracks and parameters."""
@@ -262,41 +279,62 @@ class E16(OptimizedControlSurface):
         regs.append((target, "remove_%s_listener" % kind, listener))
 
     def _refresh_all(self):
-        """(Re)attach everything to whichever tracks are on the 16 strips now.
+        """(Re)attach everything to the first 16 visible tracks as they are now.
 
         Runs at startup and whenever the visible track list changes (including
         when a group is opened or closed). The push state (_down/_twisted/
         _consumed) is deliberately left alone: the hold that opened a group is
         still down while this runs, and its release must not then mute anything.
         """
-        with self.component_guard():
-            self._detach_listeners()
-            for index in range(NUM_TRACKS):
-                track = self._mixer.channel_strip(index).track
-                if track is None:
-                    # Fewer than 16 tracks: leave this encoder inert and dark.
-                    self._encoders[index].release_parameter()
-                    continue
-                volume = track.mixer_device.volume
-                sends = track.mixer_device.sends
-                send = sends[0] if len(sends) else None  # FX send 1 (Send A)
-                regs = []
-                # Redraw the ring when the level or mute state changes from
-                # anywhere (hardware, mouse, automation), and the OLED on rename.
-                self._listen(regs, volume, "value", ChangeListener(self._draw_ring, index))
-                self._listen(regs, track, "mute", ChangeListener(self._draw_ring, index))
-                self._listen(regs, track, "name", ChangeListener(self._draw_labels))
-                if send is not None:
-                    self._listen(regs, send, "value", ChangeListener(self._on_send_changed, index))
-                self._listeners[index] = {
-                    "track": track,
-                    "volume": volume,
-                    "send": send,
-                    "regs": regs,
-                }
-                self._connect_encoder(index)
-            self._draw_all()
-            self._draw_labels()
+        self._in_refresh = True
+        try:
+            with self.component_guard():
+                self._detach_listeners()
+                # Read the track list straight from Live rather than through
+                # MixerComponent's strips, so a deletion can't leave us holding
+                # a stale (dead) track.
+                tracks = list(self.song().visible_tracks)[:NUM_TRACKS]
+                self.log_message("e16: refresh, %d track(s)" % len(tracks))
+                for index in range(NUM_TRACKS):
+                    track = tracks[index] if index < len(tracks) else None
+                    if track is None:
+                        # Fewer than 16 tracks: leave this encoder inert and dark.
+                        self._encoders[index].release_parameter()
+                        continue
+                    try:
+                        self._attach_track(index, track)
+                    except Exception as error:
+                        # One bad track must not stop the others from rebinding.
+                        self.log_message("e16: could not attach encoder %d: %r" % (index + 1, error))
+                        self._listeners.pop(index, None)
+                        self._encoders[index].release_parameter()
+                self._draw_all()
+                self._draw_labels()
+        finally:
+            self._in_refresh = False
+
+    def _attach_track(self, index, track):
+        """Bind encoder `index` to `track` and listen for changes to redraw."""
+        volume = track.mixer_device.volume
+        sends = track.mixer_device.sends
+        send = sends[0] if len(sends) else None  # FX send 1 (Send A)
+        regs = []
+        # Stored before listening so _detach_listeners can clean up even if a
+        # later step here fails.
+        self._listeners[index] = {
+            "track": track,
+            "volume": volume,
+            "send": send,
+            "regs": regs,
+        }
+        # Redraw the ring when the level or mute state changes from
+        # anywhere (hardware, mouse, automation), and the OLED on rename.
+        self._listen(regs, volume, "value", ChangeListener(self._draw_ring, index))
+        self._listen(regs, track, "mute", ChangeListener(self._draw_ring, index))
+        self._listen(regs, track, "name", ChangeListener(self._draw_labels))
+        if send is not None:
+            self._listen(regs, send, "value", ChangeListener(self._on_send_changed, index))
+        self._connect_encoder(index)
 
     def _connect_encoder(self, index):
         """Encoder drives Send A while its push is held (if the track has one),
@@ -337,10 +375,19 @@ class E16(OptimizedControlSurface):
                     and not self._consumed[index]
                     and entry is not None
                 ):
-                    entry["track"].mute = not entry["track"].mute
+                    try:
+                        entry["track"].mute = not entry["track"].mute
+                    except Exception as error:
+                        # The track is gone from the set; rebuild the bindings.
+                        self.log_message("e16: stale track on encoder %d: %r" % (index + 1, error))
+                        self._schedule_refresh()
                 self._twisted[index] = False
                 self._consumed[index] = False
-            self._connect_encoder(index)
+            try:
+                self._connect_encoder(index)
+            except Exception as error:
+                self.log_message("e16: could not bind encoder %d: %r" % (index + 1, error))
+                self._schedule_refresh()
             self._draw_ring(index)
 
     def _on_hold(self, index, token):
@@ -349,11 +396,19 @@ class E16(OptimizedControlSurface):
         if not self._down[index] or token != self._press_token[index] or self._twisted[index]:
             return
         entry = self._listeners.get(index)
-        if entry is None or not entry["track"].is_foldable:
-            return  # holding a normal track does nothing; its release still mutes
+        if entry is None:
+            return
         track = entry["track"]
-        with self.component_guard():
-            track.fold_state = 0 if track.fold_state else 1  # 1 = folded
+        try:
+            if not track.is_foldable:
+                return  # holding a normal track does nothing; its release still mutes
+            with self.component_guard():
+                track.fold_state = 0 if track.fold_state else 1  # 1 = folded
+        except Exception as error:
+            # The track is gone from the set; rebuild the bindings.
+            self.log_message("e16: stale track on encoder %d: %r" % (index + 1, error))
+            self._schedule_refresh()
+            return
         self._consumed[index] = True
         # Live should fire the visible-tracks listener itself; this guarantees a
         # re-bind even if it doesn't.
@@ -384,7 +439,13 @@ class E16(OptimizedControlSurface):
         return (index, color, amount)
 
     def _draw_ring(self, index):
-        self._send_midi(make_ring_sysex([self._ring_state(index)]))
+        try:
+            state = self._ring_state(index)
+        except Exception:
+            # Holding a track that was deleted; rebuild rather than crash.
+            self._schedule_refresh()
+            return
+        self._send_midi(make_ring_sysex([state]))
 
     def _draw_all(self):
         # One message per ring rather than one big one, to stay well under any
@@ -405,7 +466,12 @@ class E16(OptimizedControlSurface):
         names = []
         for index in range(NUM_TRACKS):
             entry = self._listeners.get(index)
-            names.append(self._label_for(entry["track"]) if entry else "")
+            try:
+                names.append(self._label_for(entry["track"]) if entry else "")
+            except Exception:
+                # Dead track: blank label, and rebuild once Live settles.
+                names.append("")
+                self._schedule_refresh()
         self._send_midi(make_labels_sysex(OLED_TITLE, names))
 
     def disconnect(self):
@@ -421,6 +487,8 @@ class E16(OptimizedControlSurface):
             encoder.release_parameter()
         if self.song().visible_tracks_has_listener(self._on_tracks_changed):
             self.song().remove_visible_tracks_listener(self._on_tracks_changed)
+        if self.song().tracks_has_listener(self._on_tracks_changed):
+            self.song().remove_tracks_listener(self._on_tracks_changed)
         self._send_midi(make_ring_sysex([(i, RING_OFF, 0) for i in range(NUM_TRACKS)]))
         self._send_midi(EXIT_REMOTE_MODE)
         self._encoders = []
